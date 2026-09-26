@@ -666,15 +666,21 @@ export async function upsertAttendanceCsvToConn(
     `);
   }
 
-  const idsSql = records.map((r) => `'${sqlEsc(r.attendance_id)}'`).join(',');
-  const existingRes = await conn.run(`
-    SELECT count(*) FROM fact_attendance WHERE attendance_id IN (${idsSql})
-  `);
-  const existingRows = await existingRes.getRows();
-  const updatedCount = Number(existingRows[0]?.[0] ?? 0);
+  let updatedCount = 0;
+  for (let i = 0; i < records.length; i += 100) {
+    const idChunk = records
+      .slice(i, i + 100)
+      .map((r) => `'${sqlEsc(r.attendance_id)}'`)
+      .join(',');
+    const existingRes = await conn.run(`
+      SELECT count(*) FROM fact_attendance WHERE attendance_id IN (${idChunk})
+    `);
+    const existingRows = await existingRes.getRows();
+    updatedCount += Number(existingRows[0]?.[0] ?? 0);
+  }
   const newInserted = Math.max(0, records.length - updatedCount);
 
-  const BATCH_SIZE = 200;
+  const BATCH_SIZE = 25;
   for (let i = 0; i < records.length; i += BATCH_SIZE) {
     const chunk = records.slice(i, i + BATCH_SIZE);
     const valuesSql = chunk

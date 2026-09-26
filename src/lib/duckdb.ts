@@ -480,7 +480,7 @@ function sqlEscape(val: string): string {
   return val.replace(/'/g, "''");
 }
 
-async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
+async function initializeSchemaAndSeed(db: DuckDBInstance, isRemoteHttp = false): Promise<void> {
   const conn = await db.connect();
   try {
     await conn.run(`
@@ -555,43 +555,49 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
     let didWrite = false;
 
     if (existingRecipeCount < MASTER_RECIPES.length) {
-      const valuesSql = MASTER_RECIPES.map(
-        (r) => `(
-          '${sqlEscape(r.recipe_id)}',
-          '${sqlEscape(r.brand)}',
-          '${sqlEscape(r.item_name)}',
-          '${sqlEscape(r.canonical_name)}',
-          '${sqlEscape(r.category)}',
-          '${sqlEscape(r.bom_summary)}',
-          ${r.raw_food_cost},
-          ${r.packaging_dine_in},
-          ${r.packaging_delivery},
-          ${r.target_food_cost_pct},
-          ${r.is_hero_bom ? 'TRUE' : 'FALSE'},
-          CURRENT_TIMESTAMP
-        )`
-      ).join(',\n');
+      const RECIPE_BATCH_SIZE = 10;
+      for (let i = 0; i < MASTER_RECIPES.length; i += RECIPE_BATCH_SIZE) {
+        const chunk = MASTER_RECIPES.slice(i, i + RECIPE_BATCH_SIZE);
+        const valuesSql = chunk
+          .map(
+            (r) => `(
+              '${sqlEscape(r.recipe_id)}',
+              '${sqlEscape(r.brand)}',
+              '${sqlEscape(r.item_name)}',
+              '${sqlEscape(r.canonical_name)}',
+              '${sqlEscape(r.category)}',
+              '${sqlEscape(r.bom_summary)}',
+              ${r.raw_food_cost},
+              ${r.packaging_dine_in},
+              ${r.packaging_delivery},
+              ${r.target_food_cost_pct},
+              ${r.is_hero_bom ? 'TRUE' : 'FALSE'},
+              CURRENT_TIMESTAMP
+            )`
+          )
+          .join(',\n');
 
-      await conn.run(`
-        INSERT INTO dim_recipes (
-          recipe_id, brand, item_name, canonical_name, category, bom_summary,
-          raw_food_cost, packaging_dine_in, packaging_delivery, target_food_cost_pct,
-          is_hero_bom, updated_at
-        )
-        VALUES ${valuesSql}
-        ON CONFLICT (recipe_id) DO UPDATE SET
-          brand = EXCLUDED.brand,
-          item_name = EXCLUDED.item_name,
-          canonical_name = EXCLUDED.canonical_name,
-          category = EXCLUDED.category,
-          bom_summary = EXCLUDED.bom_summary,
-          raw_food_cost = EXCLUDED.raw_food_cost,
-          packaging_dine_in = EXCLUDED.packaging_dine_in,
-          packaging_delivery = EXCLUDED.packaging_delivery,
-          target_food_cost_pct = EXCLUDED.target_food_cost_pct,
-          is_hero_bom = EXCLUDED.is_hero_bom,
-          updated_at = EXCLUDED.updated_at;
-      `);
+        await conn.run(`
+          INSERT INTO dim_recipes (
+            recipe_id, brand, item_name, canonical_name, category, bom_summary,
+            raw_food_cost, packaging_dine_in, packaging_delivery, target_food_cost_pct,
+            is_hero_bom, updated_at
+          )
+          VALUES ${valuesSql}
+          ON CONFLICT (recipe_id) DO UPDATE SET
+            brand = EXCLUDED.brand,
+            item_name = EXCLUDED.item_name,
+            canonical_name = EXCLUDED.canonical_name,
+            category = EXCLUDED.category,
+            bom_summary = EXCLUDED.bom_summary,
+            raw_food_cost = EXCLUDED.raw_food_cost,
+            packaging_dine_in = EXCLUDED.packaging_dine_in,
+            packaging_delivery = EXCLUDED.packaging_delivery,
+            target_food_cost_pct = EXCLUDED.target_food_cost_pct,
+            is_hero_bom = EXCLUDED.is_hero_bom,
+            updated_at = EXCLUDED.updated_at;
+        `);
+      }
       didWrite = true;
     }
 
@@ -623,7 +629,7 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
     const cancelCountRows = await cancelCountRes.getRows();
     const existingCancelCount = Number(cancelCountRows[0]?.[0] ?? 0);
 
-    if (existingCancelCount === 0) {
+    if (existingCancelCount === 0 && !isRemoteHttp) {
       for (const rawReportsDir of getRawReportsReadDirs()) {
         const klikitOrderFiles = fs
           .readdirSync(rawReportsDir)
@@ -724,10 +730,124 @@ function copySeedToTarget(seedPath: string, targetPath: string): void {
   }
 }
 
+const DEFAULT_LAYERBASE_QUERY_URL =
+  'https://tyfel-cockpit-poor-hedge.sage.cloud.layerbase.dev/v1/databases/36373641-c5db-463e-975c-0d636a0c92c5/query';
+const DEFAULT_LAYERBASE_API_KEY =
+  'sk_e99f065bc10daad5e8421b313838e610fa1985511e52f7498d90b4dc4afe5a0e';
+
+const STRING_ID_COLUMNS = new Set([
+  'order_id',
+  'external_id',
+  'short_id',
+  'dedup_id',
+  'item_dedup_id',
+  'recipe_id',
+  'attendance_id',
+  'period_key',
+  'clock_in',
+  'clock_out',
+  'shift_start_time',
+  'shift_start_override',
+  'work_date',
+  'work_date_str',
+  'max_d',
+  'min_d',
+  'dt',
+  'date',
+  'day',
+]);
+
+function normalizeLayerbaseValue(val: unknown, colName: string): unknown {
+  if (typeof val === 'string' && /^-?\d+$/.test(val) && !STRING_ID_COLUMNS.has(colName.toLowerCase())) {
+    const num = Number(val);
+    if (Number.isSafeInteger(num)) {
+      return num;
+    }
+  }
+  return val;
+}
+
+function createLayerbaseHttpInstance(queryUrl: string, apiKey: string): DuckDBInstance {
+  const cleanUrl = queryUrl.trim();
+  const cleanKey = apiKey.trim();
+
+  const conn = {
+    async run(sql: string) {
+      const normalized = sql.trim().replace(/;+\s*$/, '').toUpperCase();
+      if (normalized === 'CHECKPOINT' || normalized === 'FORCE CHECKPOINT') {
+        return {
+          columnNames: () => [] as string[],
+          getRows: async () => [] as unknown[][],
+        };
+      }
+
+      const res = await fetch(cleanUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cleanKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: sql }),
+        cache: 'no-store',
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`[Layerbase HTTP ${res.status}] ${errBody}`);
+      }
+
+      const payload = (await res.json()) as {
+        columns?: string[];
+        rows?: unknown[][];
+        error?: string;
+      };
+
+      if (payload.error) {
+        throw new Error(`[Layerbase Query Error] ${payload.error}`);
+      }
+
+      const columns = Array.isArray(payload.columns) ? payload.columns : [];
+      const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+      const rows: unknown[][] = rawRows.map((r) => {
+        if (Array.isArray(r)) {
+          return r.map((val, idx) => normalizeLayerbaseValue(val, columns[idx] || ''));
+        }
+        if (r && typeof r === 'object') {
+          return columns.map((c) => normalizeLayerbaseValue((r as Record<string, unknown>)[c], c));
+        }
+        return [r];
+      });
+
+      return {
+        columnNames: () => columns,
+        getRows: async () => rows,
+      };
+    },
+    closeSync() {
+      // Stateless HTTP connection; no socket to close
+    },
+  };
+
+  return {
+    async connect() {
+      return conn as unknown as DuckDBConnection;
+    },
+  } as unknown as DuckDBInstance;
+}
+
 export async function getDuckDB(): Promise<DuckDBInstance> {
   if (dbInstance) return dbInstance;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
+      const layerbaseUrl = process.env.LAYERBASE_QUERY_URL || DEFAULT_LAYERBASE_QUERY_URL;
+      const layerbaseKey = process.env.LAYERBASE_API_KEY || DEFAULT_LAYERBASE_API_KEY;
+
+      if (process.env.LAYERBASE_DISABLED !== 'true' && layerbaseUrl && layerbaseKey) {
+        const instance = createLayerbaseHttpInstance(layerbaseUrl, layerbaseKey);
+        dbInstance = instance;
+        return instance;
+      }
+
       const { DuckDBInstance } = await import('@duckdb/node-api');
       let dbPath = resolveRuntimeDbPath();
       const seedPath = getSeedDbPath();
