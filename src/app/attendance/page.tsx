@@ -836,17 +836,13 @@ export default function AttendancePayrollPage() {
                   {/* Left Column: Tyfel Coffee Brand Logo & Employee Info */}
                   <div className="md:col-span-4 flex flex-col justify-between space-y-5">
                     {/* Tyfel Coffee Olive Green Logo Box */}
-                    <div className="bg-[#648364] rounded-lg px-5 py-6 text-center shadow-inner border border-[#526e52]">
-                      <div className="text-3xl font-bold tracking-[0.18em] text-[#f3ecc8] font-serif flex items-center justify-center gap-1">
-                        <span>T</span>
-                        <span className="inline-flex flex-col items-center text-xl leading-none -mt-1">
-                          🌿
-                        </span>
-                        <span>FEL</span>
-                      </div>
-                      <div className="text-[11px] tracking-[0.42em] text-[#f3ecc8]/90 font-medium mt-1">
-                        COFFEE
-                      </div>
+                    <div className="bg-[#6a916e] rounded-lg p-3 flex items-center justify-center shadow-inner border border-[#56795a] overflow-hidden">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src="/tyfel-logo.png"
+                        alt="Tyfel Coffee"
+                        className="w-full max-w-[240px] h-auto object-contain select-none"
+                      />
                     </div>
 
                     {/* Employee Bio Rows matching screenshot */}
