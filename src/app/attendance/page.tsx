@@ -27,6 +27,9 @@ import {
   ChevronRight,
   Lock,
   RotateCcw,
+  Maximize2,
+  Minimize2,
+  X,
 } from "lucide-react";
 import type {
   AttendanceCycleReport,
@@ -71,6 +74,7 @@ export default function AttendancePayrollPage() {
   // Payslip visual mode: 'light' matches the exact Tyfel Coffee spreadsheet screenshot
   const [slipTheme, setSlipTheme] = useState<"light" | "dark">("light");
   const [isEditingSlip, setIsEditingSlip] = useState<boolean>(false);
+  const [isFullScreenSlip, setIsFullScreenSlip] = useState<boolean>(false);
   const [savingSlip, setSavingSlip] = useState<boolean>(false);
   const [saveBanner, setSaveBanner] = useState<string | null>(null);
 
@@ -119,6 +123,9 @@ export default function AttendancePayrollPage() {
         setReport(data.report);
         setSelectedPeriod(data.report.period_key);
         setSelectedYear(data.report.year);
+        if (!data.report.is_editable) {
+          setIsEditingSlip(false);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch attendance report:", err);
@@ -130,6 +137,17 @@ export default function AttendancePayrollPage() {
   useEffect(() => {
     fetchReport(selectedPeriod);
   }, [selectedPeriod]);
+
+  useEffect(() => {
+    if (!isFullScreenSlip) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsFullScreenSlip(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFullScreenSlip]);
 
   const activeSlip: EmployeePayslipSummary | undefined =
     report?.payslips.find(
@@ -393,8 +411,396 @@ export default function AttendancePayrollPage() {
     }
   );
 
+  const renderPayslipCard = (
+    amplified = false,
+    forceTheme?: "light" | "dark"
+  ) => {
+    if (!report || !activeSlip) return null;
+    const theme = forceTheme || slipTheme;
+    const isLight = theme === "light";
+
+    return (
+      <div
+        className={`rounded-2xl overflow-hidden border transition-all shadow-xl ${
+          isLight
+            ? "bg-white text-zinc-900 border-zinc-300"
+            : "bg-[#18191e] text-zinc-100 border-white/[0.12]"
+        }`}
+      >
+        <div className={amplified ? "p-6 sm:p-10" : "p-5 sm:p-7"}>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Tyfel Coffee Brand Logo & Employee Info */}
+            <div className="md:col-span-4 flex flex-col justify-between space-y-5">
+              {/* Tyfel Coffee Olive Green Logo Box */}
+              <div
+                className={`bg-[#6a916e] rounded-lg flex items-center justify-center shadow-inner border border-[#56795a] overflow-hidden ${
+                  amplified ? "p-4" : "p-3"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/tyfel-logo.png"
+                  alt="Tyfel Coffee"
+                  className={`w-full h-auto object-contain select-none ${
+                    amplified ? "max-w-[280px]" : "max-w-[240px]"
+                  }`}
+                />
+              </div>
+
+              {/* Employee Bio Rows matching screenshot */}
+              <div
+                className={`space-y-0 border rounded-lg overflow-hidden ${
+                  amplified ? "text-base" : "text-sm"
+                } ${
+                  isLight
+                    ? "border-zinc-200 divide-y divide-zinc-200"
+                    : "border-white/[0.1] divide-y divide-white/[0.08]"
+                }`}
+              >
+                <div
+                  className={`px-3.5 py-2.5 font-semibold ${
+                    amplified ? "text-lg" : "text-base"
+                  }`}
+                >
+                  {activeSlip.employee.full_name}
+                </div>
+                <div className="px-3.5 py-2 font-medium">
+                  {activeSlip.employee.role}
+                </div>
+                <div className="px-3.5 py-2">
+                  {activeSlip.employee.join_date_label}
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Salary Table */}
+            <div className="md:col-span-8">
+              {/* Top Green Tab Header (Salary_X) */}
+              <div className="flex items-center justify-between">
+                <div
+                  className={`inline-flex items-center gap-3 bg-[#2d6147] text-white px-4 py-1.5 rounded-t-xl font-semibold border-b border-white/20 ${
+                    amplified ? "text-sm" : "text-xs"
+                  }`}
+                >
+                  <span>{report.salary_code}</span>
+                  <span className="opacity-75">▾</span>
+                  <FileSpreadsheet className="w-3.5 h-3.5 opacity-80" />
+                </div>
+              </div>
+
+              <div
+                className={`border rounded-b-xl rounded-tr-xl overflow-hidden ${
+                  isLight ? "border-[#2d6147]/40" : "border-[#2d6147]"
+                }`}
+              >
+                <table
+                  className={`w-full border-collapse ${
+                    amplified ? "text-base" : "text-sm"
+                  }`}
+                >
+                  <thead>
+                    <tr
+                      className={`bg-[#2d6147] text-white ${
+                        amplified ? "text-sm" : "text-xs"
+                      }`}
+                    >
+                      <th className="py-2.5 px-3.5 text-left font-semibold border-r border-white/15">
+                        Description
+                      </th>
+                      <th className="py-2.5 px-2.5 text-center font-semibold border-r border-white/15 w-14">
+                        #
+                      </th>
+                      <th className="py-2.5 px-3 text-right font-semibold border-r border-white/15">
+                        # Value
+                      </th>
+                      <th className="py-2.5 px-3.5 text-right font-semibold">
+                        # Total
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody
+                    className={`divide-y ${
+                      isLight
+                        ? "divide-zinc-300 text-zinc-900"
+                        : "divide-white/[0.1] text-zinc-100"
+                    }`}
+                  >
+                    {/* Row 1: Basic Salary */}
+                    <tr>
+                      <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
+                        Basic Salary
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
+                        {activeSlip.basic_qty}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
+                        {formatAccountingRp(activeSlip.basic_unit, false)}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-medium">
+                        {formatAccountingRp(activeSlip.basic_total)}
+                      </td>
+                    </tr>
+
+                    {/* Row 2: Daily */}
+                    <tr>
+                      <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
+                        Daily
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
+                        {activeSlip.daily_qty}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
+                        {formatAccountingRp(activeSlip.daily_unit, false)}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-medium">
+                        {formatAccountingRp(activeSlip.daily_total)}
+                      </td>
+                    </tr>
+
+                    {/* Row 3: Telat */}
+                    <tr>
+                      <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
+                        Telat
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
+                        {activeSlip.late_qty}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
+                        {formatAccountingRp(-activeSlip.late_unit, false)}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-medium text-rose-600 dark:text-rose-400">
+                        {formatAccountingRp(activeSlip.late_total)}
+                      </td>
+                    </tr>
+
+                    {/* Row 4: BonusTidak telat */}
+                    <tr>
+                      <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
+                        BonusTidak telat
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10 opacity-75">
+                        {activeSlip.bonus_tidak_telat_qty}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
+                        {formatAccountingRp(
+                          activeSlip.bonus_tidak_telat_unit,
+                          false
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-medium">
+                        {formatAccountingRp(
+                          activeSlip.bonus_tidak_telat_total
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* Row 5: Custom / Extra Line */}
+                    <tr>
+                      <td className="py-2.5 px-3.5 font-medium border-r border-current/10 min-h-[36px]">
+                        {activeSlip.custom_desc || "\u00A0"}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
+                        {activeSlip.custom_qty > 0
+                          ? activeSlip.custom_qty
+                          : ""}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
+                        {activeSlip.custom_unit !== 0
+                          ? formatAccountingRp(activeSlip.custom_unit, false)
+                          : ""}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-medium">
+                        {formatAccountingRp(activeSlip.custom_total)}
+                      </td>
+                    </tr>
+
+                    {/* Row 6: Grand Total */}
+                    <tr
+                      className={
+                        isLight
+                          ? "bg-zinc-100/90 font-semibold"
+                          : "bg-white/[0.04] font-semibold"
+                      }
+                    >
+                      <td
+                        colSpan={3}
+                        className="py-2.5 px-3.5 text-left border-r border-current/10 opacity-80"
+                      >
+                        Grand Total
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-bold">
+                        {formatAccountingRp(activeSlip.grand_total, false)}
+                      </td>
+                    </tr>
+
+                    {/* Row 7: Kasbon */}
+                    <tr>
+                      <td className="py-2.5 px-3.5 font-medium border-r border-current/10 opacity-80">
+                        Kasbon
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
+                        {activeSlip.kasbon_qty > 0
+                          ? activeSlip.kasbon_qty
+                          : ""}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono border-r border-current/10 opacity-85">
+                        {activeSlip.kasbon_unit > 0
+                          ? formatAccountingRp(-activeSlip.kasbon_unit, false)
+                          : "Rp -"}
+                      </td>
+                      <td className="py-2.5 px-3.5 text-right font-mono font-medium text-rose-600 dark:text-rose-400">
+                        {formatAccountingRp(activeSlip.kasbon_total)}
+                      </td>
+                    </tr>
+
+                    {/* Row 8: Final Net Pay */}
+                    <tr
+                      className={
+                        isLight
+                          ? "bg-[#eef5f0] font-bold text-base"
+                          : "bg-emerald-950/30 font-bold text-base text-emerald-300"
+                      }
+                    >
+                      <td
+                        colSpan={3}
+                        className="py-3 px-3.5 text-left text-xs font-mono uppercase tracking-wider opacity-75 border-r border-current/10"
+                      >
+                        {"\u00A0"}
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-mono font-extrabold">
+                        {formatAccountingRp(
+                          activeSlip.net_take_home_pay,
+                          false
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <main className="min-h-screen p-4 sm:p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
+    <main className="min-h-screen p-4 sm:p-6 lg:p-10 max-w-[1600px] mx-auto">
+      {/* Global Print Rule: Only print the payslip card */}
+      <style jsx global>{`
+        @media print {
+          body {
+            background: #ffffff !important;
+            color: #18181b !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-only-slip {
+            display: block !important;
+            width: 100% !important;
+            max-width: 820px !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
+
+      {/* Print-Only Payslip View */}
+      <div className="hidden print-only-slip">
+        {renderPayslipCard(false, "light")}
+      </div>
+
+      {/* Amplified / Full-Screen Payslip Modal */}
+      {isFullScreenSlip && report && activeSlip && (
+        <div
+          className="no-print fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex flex-col p-4 sm:p-8 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsFullScreenSlip(false);
+            }
+          }}
+        >
+          <div className="w-full max-w-5xl mx-auto space-y-5 my-auto">
+            {/* Full-Screen Modal Top Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-[#18191e] p-3.5 rounded-2xl border border-white/[0.12] shadow-xl">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {report.payslips.map((p) => {
+                  const isActive =
+                    p.employee.employee_name ===
+                    activeSlip.employee.employee_name;
+                  return (
+                    <button
+                      key={p.employee.employee_name}
+                      type="button"
+                      onClick={() => setSelectedEmpName(p.employee.employee_name)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                        isActive
+                          ? "bg-[#5c7c5c] text-[#f5f2dc] font-semibold shadow"
+                          : "bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
+                      }`}
+                    >
+                      <span>{p.employee.employee_name}</span>
+                      <span className="text-[10px] opacity-75 font-mono">
+                        ({p.daily_qty}d)
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-400 hidden sm:inline">
+                  {report.cycle_label}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSlipTheme(slipTheme === "light" ? "dark" : "light")
+                  }
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] text-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  {slipTheme === "light" ? (
+                    <>
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>Dark</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sun className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Classic</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Payslip</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFullScreenSlip(false)}
+                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white border border-white/[0.12] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  title="Close Full Screen (Esc)"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Close</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Amplified Payslip Card */}
+            {renderPayslipCard(true)}
+          </div>
+        </div>
+      )}
+
+      <div className="no-print space-y-8">
       {/* =========================================================================
           Top Header: Navigation & Attendance CSV Upload
           ========================================================================= */}
@@ -483,7 +889,7 @@ export default function AttendancePayrollPage() {
       )}
 
       {/* =========================================================================
-          Payroll Period Selector: Ordered by Year & Month (Previous Completed Periods Only)
+          Payroll Period Selector: Ordered by Year & Month
           ========================================================================= */}
       <section className="rounded-2xl p-4 sm:p-5 border border-white/[0.08] bg-[#18191e] space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -512,17 +918,24 @@ export default function AttendancePayrollPage() {
             </div>
 
             {report && (
-              <span className="text-xs font-mono text-zinc-400">
-                Active Period:{" "}
-                <strong className="text-white">{report.cycle_label}</strong> ·{" "}
-                <span className="text-emerald-400 font-semibold">
-                  {report.salary_code}
+              <span className="text-xs font-mono text-zinc-400 flex items-center gap-2">
+                <span>
+                  Active Period:{" "}
+                  <strong className="text-white">{report.cycle_label}</strong> ·{" "}
+                  <span className="text-emerald-400 font-semibold">
+                    {report.salary_code}
+                  </span>
                 </span>
+                {report.is_current_running && (
+                  <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px]">
+                    In Progress · Read-Only
+                  </span>
+                )}
               </span>
             )}
           </div>
 
-          {/* Prev / Next Completed Period Stepper */}
+          {/* Prev / Next Selectable Period Stepper */}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -550,7 +963,7 @@ export default function AttendancePayrollPage() {
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 border border-white/[0.08] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
               title={
                 !nextCycle
-                  ? "Only completed previous periods can be selected"
+                  ? "Future periods are locked"
                   : `Go to ${nextCycle.short_label}`
               }
             >
@@ -577,15 +990,17 @@ export default function AttendancePayrollPage() {
                   }
                 }}
                 title={
-                  cyc.is_selectable
-                    ? `${cyc.label} (${cyc.salary_code})`
-                    : cyc.is_current_running
-                      ? `Current cycle in progress (${cyc.start_date} to ${cyc.end_date}) — only completed previous periods are selectable`
+                  cyc.is_current_running
+                    ? `${cyc.label} — In Progress (Read-Only)`
+                    : cyc.is_selectable
+                      ? `${cyc.label} (${cyc.salary_code})`
                       : `Future period locked (${cyc.start_date} to ${cyc.end_date})`
                 }
                 className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between min-h-[72px] ${
                   isSelected
-                    ? "bg-emerald-500/15 border-emerald-500/60 text-white shadow-sm cursor-pointer"
+                    ? cyc.is_current_running
+                      ? "bg-sky-500/15 border-sky-500/60 text-white shadow-sm cursor-pointer"
+                      : "bg-emerald-500/15 border-emerald-500/60 text-white shadow-sm cursor-pointer"
                     : cyc.is_selectable
                       ? "bg-white/[0.03] hover:bg-white/[0.07] border-white/[0.08] text-zinc-200 cursor-pointer"
                       : "bg-black/25 border-white/[0.04] text-zinc-600 cursor-not-allowed opacity-55"
@@ -597,6 +1012,11 @@ export default function AttendancePayrollPage() {
                   </span>
                   {!cyc.is_selectable ? (
                     <Lock className="w-3 h-3 text-zinc-600 shrink-0" />
+                  ) : cyc.is_current_running ? (
+                    <span
+                      className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"
+                      title="In Progress (Read-Only)"
+                    />
                   ) : cyc.log_count > 0 ? (
                     <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                   ) : null}
@@ -607,7 +1027,11 @@ export default function AttendancePayrollPage() {
                     {cyc.start_date.slice(5)} → {cyc.end_date.slice(5)}
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono">
-                    {cyc.is_selectable ? (
+                    {cyc.is_current_running ? (
+                      <span className="text-sky-400 font-semibold">
+                        In Progress ({cyc.log_count})
+                      </span>
+                    ) : cyc.is_selectable ? (
                       <span
                         className={
                           cyc.log_count > 0
@@ -620,9 +1044,7 @@ export default function AttendancePayrollPage() {
                           : "0 logs"}
                       </span>
                     ) : (
-                      <span className="text-zinc-600">
-                        {cyc.is_current_running ? "Running" : "Locked"}
-                      </span>
+                      <span className="text-zinc-600">Locked</span>
                     )}
                     {cyc.override_count > 0 && (
                       <span
@@ -796,340 +1218,62 @@ export default function AttendancePayrollPage() {
                     </>
                   )}
                 </button>
+
+                {report.is_editable ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingSlip(!isEditingSlip)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-colors cursor-pointer ${
+                      isEditingSlip
+                        ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
+                        : "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300"
+                    }`}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>
+                      {isEditingSlip
+                        ? "Close Editor"
+                        : `Override (${report.salary_code})`}
+                    </span>
+                  </button>
+                ) : (
+                  <span
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center gap-1.5 bg-sky-500/10 border border-sky-500/30 text-sky-300 cursor-not-allowed"
+                    title="In-progress periods can be viewed live, but overrides are locked until the period closes"
+                  >
+                    <Lock className="w-3 h-3" />
+                    <span>In Progress (Read-Only)</span>
+                  </span>
+                )}
+
                 <button
                   type="button"
-                  onClick={() => setIsEditingSlip(!isEditingSlip)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-colors cursor-pointer ${
-                    isEditingSlip
-                      ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
-                      : "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300"
-                  }`}
+                  onClick={() => setIsFullScreenSlip(true)}
+                  className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] cursor-pointer flex items-center gap-1 text-xs"
+                  title="Amplify / Open Payslip in Full Screen Modal"
                 >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>
-                    {isEditingSlip
-                      ? "Close Editor"
-                      : `Override (${report.salary_code})`}
-                  </span>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span className="text-[11px] hidden sm:inline">Full Screen</span>
                 </button>
+
                 <button
                   type="button"
                   onClick={() => window.print()}
                   className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] cursor-pointer"
-                  title="Print or Save Payslip as PDF"
+                  title="Print Only Payslip"
                 >
                   <Printer className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
 
-            {/* THE PAYSLIP CARD — Faithful to Tyfel Coffee Salary_8 Screenshot */}
-            <div
-              className={`rounded-2xl overflow-hidden border transition-all shadow-xl ${
-                slipTheme === "light"
-                  ? "bg-white text-zinc-900 border-zinc-300"
-                  : "bg-[#18191e] text-zinc-100 border-white/[0.12]"
-              }`}
-            >
-              <div className="p-5 sm:p-7">
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                  {/* Left Column: Tyfel Coffee Brand Logo & Employee Info */}
-                  <div className="md:col-span-4 flex flex-col justify-between space-y-5">
-                    {/* Tyfel Coffee Olive Green Logo Box */}
-                    <div className="bg-[#6a916e] rounded-lg p-3 flex items-center justify-center shadow-inner border border-[#56795a] overflow-hidden">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src="/tyfel-logo.png"
-                        alt="Tyfel Coffee"
-                        className="w-full max-w-[240px] h-auto object-contain select-none"
-                      />
-                    </div>
-
-                    {/* Employee Bio Rows matching screenshot */}
-                    <div
-                      className={`space-y-0 border rounded-lg overflow-hidden text-sm ${
-                        slipTheme === "light"
-                          ? "border-zinc-200 divide-y divide-zinc-200"
-                          : "border-white/[0.1] divide-y divide-white/[0.08]"
-                      }`}
-                    >
-                      <div className="px-3.5 py-2.5 font-semibold text-base">
-                        {activeSlip.employee.full_name}
-                      </div>
-                      <div className="px-3.5 py-2 font-medium">
-                        {activeSlip.employee.role}
-                      </div>
-                      <div className="px-3.5 py-2">
-                        {activeSlip.employee.join_date_label}
-                      </div>
-                      <div
-                        className={`px-3.5 py-2 text-xs font-mono flex items-center justify-between ${
-                          slipTheme === "light"
-                            ? "bg-zinc-50 text-zinc-600"
-                            : "bg-white/[0.03] text-zinc-400"
-                        }`}
-                      >
-                        <span>Shift Cutoff:</span>
-                        <span className="font-bold">
-                          {activeSlip.effective_shift_start} WIB
-                        </span>
-                      </div>
-                      <div
-                        className={`px-3.5 py-2 text-xs font-mono flex items-center justify-between ${
-                          slipTheme === "light"
-                            ? "bg-zinc-50 text-zinc-600"
-                            : "bg-white/[0.03] text-zinc-400"
-                        }`}
-                      >
-                        <span>Period ({report.year}-{String(report.month).padStart(2, "0")}):</span>
-                        <span>
-                          {report.start_date.slice(5)} → {report.end_date.slice(5)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right Column: Salary_8 Table */}
-                  <div className="md:col-span-8">
-                    {/* Top Green Tab Header (Salary_8) */}
-                    <div className="flex items-center justify-between">
-                      <div className="inline-flex items-center gap-3 bg-[#2d6147] text-white px-4 py-1.5 rounded-t-xl text-xs font-semibold border-b border-white/20">
-                        <span>{report.salary_code}</span>
-                        <span className="opacity-75">▾</span>
-                        <FileSpreadsheet className="w-3.5 h-3.5 opacity-80" />
-                      </div>
-                      {activeSlip.has_period_override && (
-                        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30">
-                          Saved Override · {report.salary_code}
-                        </span>
-                      )}
-                    </div>
-
-                    <div
-                      className={`border rounded-b-xl rounded-tr-xl overflow-hidden ${
-                        slipTheme === "light"
-                          ? "border-[#2d6147]/40"
-                          : "border-[#2d6147]"
-                      }`}
-                    >
-                      <table className="w-full text-sm border-collapse">
-                        <thead>
-                          <tr className="bg-[#2d6147] text-white text-xs">
-                            <th className="py-2.5 px-3.5 text-left font-semibold border-r border-white/15">
-                              Description
-                            </th>
-                            <th className="py-2.5 px-2.5 text-center font-semibold border-r border-white/15 w-14">
-                              #
-                            </th>
-                            <th className="py-2.5 px-3 text-right font-semibold border-r border-white/15">
-                              # Value
-                            </th>
-                            <th className="py-2.5 px-3.5 text-right font-semibold">
-                              # Total
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody
-                          className={`divide-y ${
-                            slipTheme === "light"
-                              ? "divide-zinc-300 text-zinc-900"
-                              : "divide-white/[0.1] text-zinc-100"
-                          }`}
-                        >
-                          {/* Row 1: Basic Salary */}
-                          <tr>
-                            <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
-                              Basic Salary
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
-                              {activeSlip.basic_qty}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
-                              {formatAccountingRp(activeSlip.basic_unit, false)}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-medium">
-                              {formatAccountingRp(activeSlip.basic_total)}
-                            </td>
-                          </tr>
-
-                          {/* Row 2: Daily */}
-                          <tr>
-                            <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
-                              <div className="flex items-center justify-between gap-1">
-                                <span>Daily</span>
-                                {activeSlip.daily_is_overridden && (
-                                  <span
-                                    className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-300"
-                                    title={`Raw attendance logs in period: ${activeSlip.raw_logs_count}`}
-                                  >
-                                    adj ({activeSlip.raw_logs_count} logs)
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
-                              {activeSlip.daily_qty}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
-                              {formatAccountingRp(activeSlip.daily_unit, false)}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-medium">
-                              {formatAccountingRp(activeSlip.daily_total)}
-                            </td>
-                          </tr>
-
-                          {/* Row 3: Telat */}
-                          <tr>
-                            <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
-                              <div className="flex items-center justify-between gap-1">
-                                <span>Telat</span>
-                                <span className="text-[10px] font-mono opacity-60">
-                                  &gt;{activeSlip.effective_shift_start}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
-                              {activeSlip.late_qty}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
-                              {formatAccountingRp(-activeSlip.late_unit, false)}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-medium text-rose-600 dark:text-rose-400">
-                              {formatAccountingRp(activeSlip.late_total)}
-                            </td>
-                          </tr>
-
-                          {/* Row 4: BonusTidak telat */}
-                          <tr>
-                            <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
-                              BonusTidak telat
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10 opacity-75">
-                              {activeSlip.bonus_tidak_telat_qty}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
-                              {formatAccountingRp(
-                                activeSlip.bonus_tidak_telat_unit,
-                                false
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-medium">
-                              {formatAccountingRp(
-                                activeSlip.bonus_tidak_telat_total
-                              )}
-                            </td>
-                          </tr>
-
-                          {/* Row 5: Custom / Extra Line */}
-                          <tr>
-                            <td className="py-2.5 px-3.5 font-medium border-r border-current/10 min-h-[36px]">
-                              {activeSlip.custom_desc || "\u00A0"}
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
-                              {activeSlip.custom_qty > 0
-                                ? activeSlip.custom_qty
-                                : ""}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
-                              {activeSlip.custom_unit !== 0
-                                ? formatAccountingRp(
-                                    activeSlip.custom_unit,
-                                    false
-                                  )
-                                : ""}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-medium">
-                              {formatAccountingRp(activeSlip.custom_total)}
-                            </td>
-                          </tr>
-
-                          {/* Row 6: Grand Total */}
-                          <tr
-                            className={
-                              slipTheme === "light"
-                                ? "bg-zinc-100/90 font-semibold"
-                                : "bg-white/[0.04] font-semibold"
-                            }
-                          >
-                            <td
-                              colSpan={3}
-                              className="py-2.5 px-3.5 text-left border-r border-current/10 opacity-80"
-                            >
-                              Grand Total
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-bold">
-                              {formatAccountingRp(activeSlip.grand_total, false)}
-                            </td>
-                          </tr>
-
-                          {/* Row 7: Kasbon */}
-                          <tr>
-                            <td className="py-2.5 px-3.5 font-medium border-r border-current/10 opacity-80">
-                              Kasbon
-                            </td>
-                            <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
-                              {activeSlip.kasbon_qty > 0
-                                ? activeSlip.kasbon_qty
-                                : ""}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono border-r border-current/10 opacity-85">
-                              {activeSlip.kasbon_unit > 0
-                                ? formatAccountingRp(
-                                    -activeSlip.kasbon_unit,
-                                    false
-                                  )
-                                : "Rp -"}
-                            </td>
-                            <td className="py-2.5 px-3.5 text-right font-mono font-medium text-rose-600 dark:text-rose-400">
-                              {formatAccountingRp(activeSlip.kasbon_total)}
-                            </td>
-                          </tr>
-
-                          {/* Row 8: Final Net Take-Home Pay */}
-                          <tr
-                            className={
-                              slipTheme === "light"
-                                ? "bg-[#eef5f0] font-bold text-base"
-                                : "bg-emerald-950/30 font-bold text-base text-emerald-300"
-                            }
-                          >
-                            <td
-                              colSpan={3}
-                              className="py-3 px-3.5 text-left text-xs font-mono uppercase tracking-wider opacity-75 border-r border-current/10"
-                            >
-                              Net Take-Home Pay
-                            </td>
-                            <td className="py-3 px-3.5 text-right font-mono font-extrabold">
-                              {formatAccountingRp(
-                                activeSlip.net_take_home_pay,
-                                false
-                              )}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {activeSlip.notes && (
-                      <div
-                        className={`mt-2.5 text-xs font-mono px-3 py-1.5 rounded ${
-                          slipTheme === "light"
-                            ? "bg-zinc-100 text-zinc-600"
-                            : "bg-white/[0.04] text-zinc-400"
-                        }`}
-                      >
-                        Note ({report.salary_code}): {activeSlip.notes}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* THE PAYSLIP CARD */}
+            {renderPayslipCard(false)}
           </div>
 
           {/* Right 5 Columns: Per-Period Editor Form OR Late & Anomaly Audit Breakdown */}
           <div className="xl:col-span-5 space-y-4">
-            {isEditingSlip ? (
+            {isEditingSlip && report.is_editable ? (
               <form
                 onSubmit={handleSavePayslip}
                 className="rounded-2xl p-5 bg-[#18191e] border border-emerald-500/40 space-y-4"
@@ -1894,6 +2038,7 @@ export default function AttendancePayrollPage() {
           </div>
         </section>
       )}
+      </div>
     </main>
   );
 }

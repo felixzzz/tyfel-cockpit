@@ -157,6 +157,7 @@ export interface PayrollCycleOption {
   is_current_running: boolean;
   is_future: boolean;
   is_selectable: boolean;
+  is_editable: boolean;
   is_default?: boolean;
 }
 
@@ -168,6 +169,8 @@ export interface AttendanceCycleReport {
   salary_code: string;
   start_date: string;
   end_date: string;
+  is_current_running: boolean;
+  is_editable: boolean;
   available_years: number[];
   available_cycles: PayrollCycleOption[];
   overall: {
@@ -769,8 +772,10 @@ export function buildChronologicalPayrollCycles(
         startDate <= referenceDateStr && endDate > referenceDateStr;
       const isFuture = startDate > referenceDateStr;
 
-      // Only previous completed periods can be selected (not future or incomplete current month)
-      const isSelectable = isCompleted;
+      // Completed previous periods AND the currently running in-progress period can be selected/shown,
+      // but only completed previous periods are editable!
+      const isSelectable = isCompleted || isCurrentRunning;
+      const isEditable = isCompleted;
 
       const logCount = logCountsByPeriod.get(periodKey) || 0;
       const overrideCount = overrideCountsByPeriod.get(periodKey) || 0;
@@ -779,7 +784,7 @@ export function buildChronologicalPayrollCycles(
       if (isFuture) {
         badge = 'Future (Locked)';
       } else if (isCurrentRunning) {
-        badge = `In Progress (Closes 15 ${monthShort})`;
+        badge = `In Progress (Read-Only)`;
       } else if (logCount > 0) {
         badge = `${logCount} logs · 16 ${prevMonthShort}–15 ${monthShort}`;
       }
@@ -802,18 +807,19 @@ export function buildChronologicalPayrollCycles(
         is_current_running: isCurrentRunning,
         is_future: isFuture,
         is_selectable: isSelectable,
+        is_editable: isEditable,
       });
     }
   }
 
   // Default is the most recent completed previous period (e.g., 2026-09: 16 Aug - 15 Sep 2026)
-  const selectableCycles = cycles.filter((c) => c.is_selectable);
-  const latestWithLogs = [...selectableCycles]
+  const completedCycles = cycles.filter((c) => c.is_completed);
+  const latestWithLogs = [...completedCycles]
     .reverse()
     .find((c) => c.log_count > 0);
   const defaultCycle =
     latestWithLogs ||
-    selectableCycles[selectableCycles.length - 1] ||
+    completedCycles[completedCycles.length - 1] ||
     cycles[0];
 
   if (defaultCycle) {
@@ -1365,6 +1371,8 @@ export async function getAttendanceCycleReport(params?: {
     salary_code: salaryCode,
     start_date: startDate,
     end_date: endDate,
+    is_current_running: selectedCycle.is_current_running,
+    is_editable: selectedCycle.is_editable,
     available_years: years,
     available_cycles: cycles,
     overall: {
@@ -1411,6 +1419,19 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
   kasbon_unit_value?: number;
   notes?: string;
 }): Promise<void> {
+  const maxDateRows = await runQuery<{ max_d: string | null }>(
+    `SELECT CAST(MAX(work_date) AS VARCHAR) as max_d FROM fact_attendance`
+  );
+  const dbMaxDate = maxDateRows[0]?.max_d || '2026-09-26';
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const referenceDate = dbMaxDate > todayIso ? dbMaxDate : todayIso;
+  const endDatePart = payload.period_key.split('_to_')[1] || '';
+  if (endDatePart > referenceDate) {
+    throw new Error(
+      'In-progress periods are read-only and cannot be edited until the period closes.'
+    );
+  }
+
   const db = await getDuckDB();
   const conn = await db.connect();
   try {
