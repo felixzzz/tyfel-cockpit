@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { processUploadedFile, getRawFilesAudit, IngestSummary } from '@/lib/ingest';
+import { getOrderItemCoverageAudit } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const rawFiles = await getRawFilesAudit();
-    return NextResponse.json({ success: true, files: rawFiles });
+    const [rawFiles, coverageAudit] = await Promise.all([
+      getRawFilesAudit(),
+      getOrderItemCoverageAudit(),
+    ]);
+    return NextResponse.json({ success: true, files: rawFiles, coverageAudit });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

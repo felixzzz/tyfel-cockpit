@@ -19,8 +19,10 @@ interface DataFreshnessBarProps {
 }
 
 export function DataFreshnessBar({ freshness, compact = false }: DataFreshnessBarProps) {
-  const { klikit, dineInPos } = freshness;
+  const { klikit, dineInPos, itemCoverage } = freshness;
   const isPosSynced = dineInPos.orderCount > 0;
+  const coveragePct = itemCoverage?.orderCoveragePct ?? 100;
+  const orphanCount = itemCoverage?.orphanOrdersCount ?? 0;
 
   if (compact) {
     return (
@@ -70,6 +72,25 @@ export function DataFreshnessBar({ freshness, compact = false }: DataFreshnessBa
               </>
             )}
           </div>
+
+          {/* Order-to-Item Coverage Pill */}
+          {itemCoverage && (
+            <div className="flex items-center gap-2 bg-white/[0.03] border border-white/[0.07] rounded-lg px-3 py-1.5">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  coveragePct >= 95 ? "bg-emerald-500" : "bg-amber-400"
+                }`}
+              />
+              <span className="text-zinc-400">Item BOM Linkage:</span>
+              <span
+                className={`font-mono font-medium ${
+                  coveragePct >= 95 ? "text-emerald-300" : "text-amber-300"
+                }`}
+              >
+                {coveragePct}% ({itemCoverage.ordersWithItems.toLocaleString()}/{itemCoverage.totalOrders.toLocaleString()})
+              </span>
+            </div>
+          )}
 
           <Link
             href="/ingest"
@@ -248,32 +269,53 @@ export function DataFreshnessBar({ freshness, compact = false }: DataFreshnessBa
         </div>
       </div>
 
-      {/* Operational Notice Banner */}
-      {isPosSynced ? (
-        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/25 border border-emerald-800/35 text-emerald-200/90 text-xs">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="leading-relaxed">
-            <strong className="text-emerald-300 font-semibold font-mono">Consolidated Multi-Channel Stream:</strong>{" "}
-            Online delivery orders (Klikit) and Greenville direct POS tickets are unified in DuckDB.
-            Floor managers can upload additional EOD closures at{" "}
-            <Link href="/ingest" className="underline font-semibold hover:text-white">
-              /ingest
-            </Link>
-            .
-          </span>
-        </div>
-      ) : (
-        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-amber-950/20 border border-amber-800/35 text-amber-200/90 text-xs">
-          <Info className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="leading-relaxed">
-            <strong className="text-amber-300 font-semibold font-mono">Channel Coverage Note:</strong>{" "}
-            Current telemetry reflects online delivery channels (GrabFood & GoFood).
-            Greenville offline dine-in & takeaway register sales will merge seamlessly when uploaded at{" "}
-            <Link href="/ingest" className="underline font-semibold hover:text-white">
-              /ingest
-            </Link>
-            .
-          </span>
+      {/* Track A: Order-to-Item Coverage & Reconciliation Audit Banner */}
+      {itemCoverage && (
+        <div
+          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-xl border text-xs ${
+            orphanCount === 0
+              ? "bg-emerald-950/20 border-emerald-800/35 text-emerald-200/90"
+              : "bg-amber-950/20 border-amber-800/40 text-amber-200/90"
+          }`}
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            {orphanCount === 0 ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+            ) : (
+              <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+            )}
+            <div className="leading-relaxed">
+              <strong
+                className={`font-semibold font-mono ${
+                  orphanCount === 0 ? "text-emerald-300" : "text-amber-300"
+                }`}
+              >
+                Order-to-Item BOM Reconciliation ({coveragePct}% Coverage):
+              </strong>{" "}
+              <span className="font-mono text-white font-semibold">
+                {itemCoverage.ordersWithItems.toLocaleString()}
+              </span>{" "}
+              of{" "}
+              <span className="font-mono text-white font-semibold">
+                {itemCoverage.totalOrders.toLocaleString()}
+              </span>{" "}
+              orders have full SKU line-item breakdowns ({itemCoverage.totalItemRows.toLocaleString()} item rows ·{" "}
+              {itemCoverage.totalUnitsSold.toLocaleString()} units sold).
+              {orphanCount > 0 && (
+                <span className="text-amber-300 ml-1">
+                  · <strong>{orphanCount.toLocaleString()} delivery orders</strong> are awaiting their matching Klikit Items CSV export.
+                </span>
+              )}
+            </div>
+          </div>
+
+          <Link
+            href="/ingest"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.1] text-white font-mono text-[11px] shrink-0 transition-colors self-start sm:self-auto"
+          >
+            <span>Reconciliation Audit</span>
+            <UploadCloud className="w-3.5 h-3.5 text-emerald-400" />
+          </Link>
         </div>
       )}
     </div>
