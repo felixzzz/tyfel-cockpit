@@ -15,6 +15,7 @@ import {
 import { FilterBar } from "@/components/FilterBar";
 import { DataFreshnessBar } from "@/components/DataFreshnessBar";
 import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
+import { CanceledOrderInspector } from "@/components/CanceledOrderInspector";
 import {
   ArrowLeft,
   Flame,
@@ -103,6 +104,7 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
     menuEngineering,
     menuEngineeringSummary,
     slaDiagnostic,
+    cancellationDiagnostic,
     channels,
     branches,
     hourly,
@@ -600,6 +602,15 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
             title={`${brandName} — Kitchen Prep SLA Heatmap & Breach Inspector`}
             subtitle={`Day × hour KPT matrix, daypart rush strain, and slow ticket basket breakdown for ${brandName}`}
             showBrandColumn={false}
+          />
+
+          {/* =========================================================================
+              Brand Cancelled Order & Revenue Leakage Inspector
+              ========================================================================= */}
+          <CanceledOrderInspector
+            diagnostic={cancellationDiagnostic}
+            title={`${brandName} — Cancelled Order & Revenue Leakage Inspector`}
+            subtitle={`Cancelled delivery tickets, pre-prep opening gap vs post-prep cooked food waste for ${brandName}`}
           />
 
           {/* =========================================================================

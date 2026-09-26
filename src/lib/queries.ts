@@ -45,6 +45,11 @@ export interface ExecutiveSummary {
   sla_breach_rate_pct: number;
   red_alert_count: number;
   avg_prep_time_minutes: number;
+  cancelled_orders_count: number;
+  cancellation_rate_pct: number;
+  cancelled_gross_gmv: number;
+  cancelled_net_payout: number;
+  post_prep_cancelled_count: number;
 }
 
 export interface BrandStats {
@@ -109,6 +114,11 @@ export interface BrandDetailKPI {
   sla_breach_rate_pct: number;
   red_alerts: number;
   peak_rush_breaches: number;
+  cancelled_orders_count: number;
+  cancellation_rate_pct: number;
+  cancelled_gross_gmv: number;
+  cancelled_net_payout: number;
+  post_prep_cancelled_count: number;
 }
 
 export interface SkuParetoItem {
@@ -317,6 +327,85 @@ export interface KitchenSlaDiagnostic {
   topBreachTickets: BreachTicketItem[];
 }
 
+export interface CanceledOrderItem {
+  order_id: string;
+  short_id: string;
+  provider: string;
+  brand: string;
+  branch: string;
+  created_at_formatted: string;
+  hour_of_day: number;
+  daypart_label: string;
+  gross_amount: number;
+  net_payout: number;
+  cancellation_reason: string;
+  reason_label: string;
+  cancelled_by: string;
+  prep_stage: 'Post-Prep Food Waste' | 'Pre-Prep Lost Sale';
+  prep_time_minutes: number | null;
+  meal_prep_time_raw: string;
+  items_ordered: number;
+  menu_items_summary: string;
+}
+
+export interface CancellationReasonBreakdown {
+  reason_code: string;
+  reason_label: string;
+  cancelled_by: string;
+  order_count: number;
+  share_of_cancels_pct: number;
+  lost_gross_gmv: number;
+  lost_net_payout: number;
+  operational_fix: string;
+}
+
+export interface CancellationWindowBreakdown {
+  window_label: string;
+  time_range: string;
+  cancelled_orders: number;
+  lost_gross_gmv: number;
+  share_of_lost_gmv_pct: number;
+  root_cause_note: string;
+}
+
+export interface CancellationBrandBreakdown {
+  brand: string;
+  completed_orders: number;
+  cancelled_orders: number;
+  cancellation_rate_pct: number;
+  lost_gross_gmv: number;
+  lost_net_payout: number;
+  post_prep_waste_count: number;
+}
+
+export interface BranchCancellationProfile {
+  branch: 'Combined' | 'Kemang' | 'Greenville';
+  completedOrders: number;
+  cancelledOrders: number;
+  cancellationRatePct: number;
+  lostGrossGmv: number;
+  lostNetPayout: number;
+  postPrepWasteOrders: number;
+  postPrepWasteGrossGmv: number;
+  prePrepLostOrders: number;
+  prePrepLostGrossGmv: number;
+  earlyOpeningCancels: number;
+  earlyOpeningLostGmv: number;
+  gofoodCancels: number;
+  grabfoodCancels: number;
+  reasons: CancellationReasonBreakdown[];
+  windows: CancellationWindowBreakdown[];
+  brands: CancellationBrandBreakdown[];
+  tickets: CanceledOrderItem[];
+}
+
+export interface CanceledOrdersDiagnostic {
+  activeBranchFilter: 'all' | 'kemang' | 'greenville';
+  combined: BranchCancellationProfile;
+  kemang: BranchCancellationProfile;
+  greenville: BranchCancellationProfile;
+}
+
 export interface BrandDetailData {
   brandName: string;
   slug: string;
@@ -325,6 +414,7 @@ export interface BrandDetailData {
   menuEngineering: MenuEngineeringItem[];
   menuEngineeringSummary: MenuEngineeringSummary;
   slaDiagnostic: KitchenSlaDiagnostic;
+  cancellationDiagnostic: CanceledOrdersDiagnostic;
   channels: BrandChannelStats[];
   branches: BrandBranchStats[];
   hourly: BrandHourlyStats[];
@@ -373,9 +463,9 @@ export function brandToSlug(brand: string): string {
   return brand.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-export function buildWhereClause(filters?: QueryFilters, tablePrefix: string = ''): string {
+export function buildDateAndBranchFilterClause(filters?: QueryFilters, tablePrefix: string = ''): string {
   const p = tablePrefix ? `${tablePrefix}.` : '';
-  const clauses: string[] = [`${p}status != 'CANCELLED'`];
+  const clauses: string[] = ['1=1'];
 
   if (filters?.branch && filters.branch.toLowerCase() !== 'all') {
     const escapedBranch = filters.branch.toLowerCase().replace(/'/g, "''");
@@ -409,38 +499,81 @@ export function buildWhereClause(filters?: QueryFilters, tablePrefix: string = '
   return clauses.join(' AND ');
 }
 
+export function buildWhereClause(filters?: QueryFilters, tablePrefix: string = ''): string {
+  const p = tablePrefix ? `${tablePrefix}.` : '';
+  return `${p}status != 'CANCELLED' AND ${buildDateAndBranchFilterClause(filters, tablePrefix)}`;
+}
+
 export async function getExecutiveSummary(filters?: QueryFilters): Promise<ExecutiveSummary> {
   const where = buildWhereClause(filters);
-  const rows = await runQuery<any>(`
-    SELECT
-      COUNT(*) AS total_orders,
-      COALESCE(SUM(gross_amount), 0) AS total_gross_gmv,
-      COALESCE(SUM(net_payout), 0) AS total_net_payout,
-      CASE 
-        WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(net_payout) / SUM(gross_amount)) * 100, 2)
-        ELSE 0 
-      END AS net_realization_rate,
-      COALESCE(SUM(merchant_promo_burn), 0) AS total_merchant_promo_burn,
-      CASE 
-        WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(merchant_promo_burn) / SUM(gross_amount)) * 100, 2)
-        ELSE 0 
-      END AS promo_burn_rate_pct,
-      CASE 
-        WHEN COUNT(*) > 0 THEN ROUND(SUM(gross_amount) / COUNT(*), 0)
-        ELSE 0 
-      END AS avg_order_value,
-      COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breach_count,
-      CASE 
-        WHEN COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END) > 0 
-        THEN ROUND((SUM(CASE WHEN kpt_sla_breach = true THEN 1.0 ELSE 0.0 END) / COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END)) * 100, 2)
-        ELSE 0 
-      END AS sla_breach_rate_pct,
-      COALESCE(SUM(CASE WHEN kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS red_alert_count,
-      COALESCE(ROUND(AVG(prep_time_minutes), 1), 0) AS avg_prep_time_minutes
-    FROM fact_orders
-    WHERE ${where};
-  `);
-  return rows[0] as ExecutiveSummary;
+  const cancelWhere = buildDateAndBranchFilterClause(filters, 'c');
+
+  const [rows, cancelRows] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COUNT(*) AS total_orders,
+        COALESCE(SUM(gross_amount), 0) AS total_gross_gmv,
+        COALESCE(SUM(net_payout), 0) AS total_net_payout,
+        CASE 
+          WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(net_payout) / SUM(gross_amount)) * 100, 2)
+          ELSE 0 
+        END AS net_realization_rate,
+        COALESCE(SUM(merchant_promo_burn), 0) AS total_merchant_promo_burn,
+        CASE 
+          WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(merchant_promo_burn) / SUM(gross_amount)) * 100, 2)
+          ELSE 0 
+        END AS promo_burn_rate_pct,
+        CASE 
+          WHEN COUNT(*) > 0 THEN ROUND(SUM(gross_amount) / COUNT(*), 0)
+          ELSE 0 
+        END AS avg_order_value,
+        COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breach_count,
+        CASE 
+          WHEN COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END) > 0 
+          THEN ROUND((SUM(CASE WHEN kpt_sla_breach = true THEN 1.0 ELSE 0.0 END) / COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END)) * 100, 2)
+          ELSE 0 
+        END AS sla_breach_rate_pct,
+        COALESCE(SUM(CASE WHEN kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS red_alert_count,
+        COALESCE(ROUND(AVG(prep_time_minutes), 1), 0) AS avg_prep_time_minutes
+      FROM fact_orders
+      WHERE ${where};
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COUNT(*) AS cancelled_orders_count,
+        COALESCE(SUM(c.gross_amount), 0) AS cancelled_gross_gmv,
+        COALESCE(SUM(c.net_payout), 0) AS cancelled_net_payout,
+        COALESCE(SUM(CASE WHEN c.prep_time_minutes IS NOT NULL AND c.prep_time_minutes > 0 THEN 1 ELSE 0 END), 0) AS post_prep_cancelled_count
+      FROM dim_order_cancellations c
+      WHERE ${cancelWhere};
+    `),
+  ]);
+
+  const r = rows[0] || {};
+  const cr = cancelRows[0] || {};
+  const totalOrders = Number(r.total_orders ?? 0);
+  const cancelledCount = Number(cr.cancelled_orders_count ?? 0);
+  const totalAllOrders = totalOrders + cancelledCount;
+  const cancelRate = totalAllOrders > 0 ? Number(((cancelledCount / totalAllOrders) * 100).toFixed(2)) : 0;
+
+  return {
+    total_orders: totalOrders,
+    total_gross_gmv: Number(r.total_gross_gmv ?? 0),
+    total_net_payout: Number(r.total_net_payout ?? 0),
+    net_realization_rate: Number(r.net_realization_rate ?? 0),
+    total_merchant_promo_burn: Number(r.total_merchant_promo_burn ?? 0),
+    promo_burn_rate_pct: Number(r.promo_burn_rate_pct ?? 0),
+    avg_order_value: Number(r.avg_order_value ?? 0),
+    sla_breach_count: Number(r.sla_breach_count ?? 0),
+    sla_breach_rate_pct: Number(r.sla_breach_rate_pct ?? 0),
+    red_alert_count: Number(r.red_alert_count ?? 0),
+    avg_prep_time_minutes: Number(r.avg_prep_time_minutes ?? 0),
+    cancelled_orders_count: cancelledCount,
+    cancellation_rate_pct: cancelRate,
+    cancelled_gross_gmv: Number(cr.cancelled_gross_gmv ?? 0),
+    cancelled_net_payout: Number(cr.cancelled_net_payout ?? 0),
+    post_prep_cancelled_count: Number(cr.post_prep_cancelled_count ?? 0),
+  };
 }
 
 export async function getBrandBreakdown(filters?: QueryFilters): Promise<BrandStats[]> {
@@ -660,48 +793,63 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
   const combinedWhere = `${brandCond} AND ${extraWhere}`;
 
   // 1. KPI
-  const kpiRows = await runQuery<Record<string, unknown>>(`
-    SELECT
-      COUNT(*) AS order_count,
-      COALESCE(SUM(gross_amount), 0) AS gross_gmv,
-      COALESCE(SUM(net_payout), 0) AS net_payout,
-      CASE 
-        WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(net_payout) / SUM(gross_amount)) * 100, 1)
-        ELSE 0 
-      END AS net_realization_rate,
-      COALESCE(SUM(merchant_promo_burn), 0) AS merchant_promo_burn,
-      CASE 
-        WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(merchant_promo_burn) / SUM(gross_amount)) * 100, 1)
-        ELSE 0 
-      END AS promo_burn_rate_pct,
-      CASE 
-        WHEN COUNT(*) > 0 THEN ROUND(SUM(gross_amount) / COUNT(*), 0)
-        ELSE 0 
-      END AS avg_order_value,
-      COALESCE(ROUND(AVG(prep_time_minutes), 1), 0) AS avg_prep_time_min,
-      COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches,
-      CASE 
-        WHEN COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END) > 0 
-        THEN ROUND((SUM(CASE WHEN kpt_sla_breach = true THEN 1.0 ELSE 0.0 END) / COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END)) * 100, 1)
-        ELSE 0 
-      END AS sla_breach_rate_pct,
-      COALESCE(SUM(CASE WHEN kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS red_alerts,
-      COALESCE(SUM(CASE WHEN kpt_sla_breach = true AND EXTRACT(HOUR FROM created_at) IN (11, 12, 13, 18, 19, 20) THEN 1 ELSE 0 END), 0) AS peak_rush_breaches
-    FROM fact_orders
-    WHERE ${combinedWhere};
-  `);
+  const cancelBrandWhere = `c.brand = '${escapedBrand}' AND ${buildDateAndBranchFilterClause(filters, 'c')}`;
+  const [kpiRows, cancelKpiRows, unitsRow] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COUNT(*) AS order_count,
+        COALESCE(SUM(gross_amount), 0) AS gross_gmv,
+        COALESCE(SUM(net_payout), 0) AS net_payout,
+        CASE 
+          WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(net_payout) / SUM(gross_amount)) * 100, 1)
+          ELSE 0 
+        END AS net_realization_rate,
+        COALESCE(SUM(merchant_promo_burn), 0) AS merchant_promo_burn,
+        CASE 
+          WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(merchant_promo_burn) / SUM(gross_amount)) * 100, 1)
+          ELSE 0 
+        END AS promo_burn_rate_pct,
+        CASE 
+          WHEN COUNT(*) > 0 THEN ROUND(SUM(gross_amount) / COUNT(*), 0)
+          ELSE 0 
+        END AS avg_order_value,
+        COALESCE(ROUND(AVG(prep_time_minutes), 1), 0) AS avg_prep_time_min,
+        COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches,
+        CASE 
+          WHEN COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END) > 0 
+          THEN ROUND((SUM(CASE WHEN kpt_sla_breach = true THEN 1.0 ELSE 0.0 END) / COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END)) * 100, 1)
+          ELSE 0 
+        END AS sla_breach_rate_pct,
+        COALESCE(SUM(CASE WHEN kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS red_alerts,
+        COALESCE(SUM(CASE WHEN kpt_sla_breach = true AND EXTRACT(HOUR FROM created_at) IN (11, 12, 13, 18, 19, 20) THEN 1 ELSE 0 END), 0) AS peak_rush_breaches
+      FROM fact_orders
+      WHERE ${combinedWhere};
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COUNT(*) AS cancelled_orders_count,
+        COALESCE(SUM(c.gross_amount), 0) AS cancelled_gross_gmv,
+        COALESCE(SUM(c.net_payout), 0) AS cancelled_net_payout,
+        COALESCE(SUM(CASE WHEN c.prep_time_minutes IS NOT NULL AND c.prep_time_minutes > 0 THEN 1 ELSE 0 END), 0) AS post_prep_cancelled_count
+      FROM dim_order_cancellations c
+      WHERE ${cancelBrandWhere};
+    `),
+    runQuery<{ total_units_sold: number }>(`
+      SELECT COALESCE(SUM(COALESCE(item_qty, 1)), 0) AS total_units_sold
+      FROM fact_order_items
+      WHERE ${combinedWhere};
+    `),
+  ]);
 
-  // Units sold
-  const unitsRow = await runQuery<{ total_units_sold: number }>(`
-    SELECT COALESCE(SUM(COALESCE(item_qty, 1)), 0) AS total_units_sold
-    FROM fact_order_items
-    WHERE ${combinedWhere};
-  `);
   const totalUnitsSold = unitsRow[0]?.total_units_sold ? Number(unitsRow[0].total_units_sold) : 0;
+  const completedCount = kpiRows[0]?.order_count ? Number(kpiRows[0].order_count) : 0;
+  const cancelledCount = cancelKpiRows[0]?.cancelled_orders_count ? Number(cancelKpiRows[0].cancelled_orders_count) : 0;
+  const totalBrandOrders = completedCount + cancelledCount;
+  const brandCancelRate = totalBrandOrders > 0 ? Number(((cancelledCount / totalBrandOrders) * 100).toFixed(2)) : 0;
 
   const kpi: BrandDetailKPI = {
     brand: brandName,
-    order_count: kpiRows[0]?.order_count ? Number(kpiRows[0].order_count) : 0,
+    order_count: completedCount,
     gross_gmv: kpiRows[0]?.gross_gmv ? Number(kpiRows[0].gross_gmv) : 0,
     net_payout: kpiRows[0]?.net_payout ? Number(kpiRows[0].net_payout) : 0,
     net_realization_rate: kpiRows[0]?.net_realization_rate ? Number(kpiRows[0].net_realization_rate) : 0,
@@ -714,6 +862,11 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
     sla_breach_rate_pct: kpiRows[0]?.sla_breach_rate_pct ? Number(kpiRows[0].sla_breach_rate_pct) : 0,
     red_alerts: kpiRows[0]?.red_alerts ? Number(kpiRows[0].red_alerts) : 0,
     peak_rush_breaches: kpiRows[0]?.peak_rush_breaches ? Number(kpiRows[0].peak_rush_breaches) : 0,
+    cancelled_orders_count: cancelledCount,
+    cancellation_rate_pct: brandCancelRate,
+    cancelled_gross_gmv: cancelKpiRows[0]?.cancelled_gross_gmv ? Number(cancelKpiRows[0].cancelled_gross_gmv) : 0,
+    cancelled_net_payout: cancelKpiRows[0]?.cancelled_net_payout ? Number(cancelKpiRows[0].cancelled_net_payout) : 0,
+    post_prep_cancelled_count: cancelKpiRows[0]?.post_prep_cancelled_count ? Number(cancelKpiRows[0].post_prep_cancelled_count) : 0,
   };
 
   // 2. SKUs Pareto
@@ -1077,7 +1230,10 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
     };
   });
 
-  const slaDiagnostic = await getKitchenSlaDiagnostic(filters, brandName);
+  const [slaDiagnostic, cancellationDiagnostic] = await Promise.all([
+    getKitchenSlaDiagnostic(filters, brandName),
+    getCanceledOrdersDiagnostic(filters, brandName),
+  ]);
 
   return {
     brandName,
@@ -1087,6 +1243,7 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
     menuEngineering,
     menuEngineeringSummary,
     slaDiagnostic,
+    cancellationDiagnostic,
     channels,
     branches,
     hourly,
@@ -1467,6 +1624,385 @@ export async function getKitchenSlaDiagnostic(
   };
 }
 
+async function buildBranchCancellationProfile(
+  branch: 'Combined' | 'Kemang' | 'Greenville',
+  dateOnlyFilters?: QueryFilters,
+  brandName?: string
+): Promise<BranchCancellationProfile> {
+  const dateClauseOrders = buildDateAndBranchFilterClause(
+    {
+      range: dateOnlyFilters?.range,
+      from: dateOnlyFilters?.from,
+      to: dateOnlyFilters?.to,
+      branch: branch === 'Combined' ? 'all' : branch.toLowerCase(),
+    },
+    'o'
+  );
+  const dateClauseCancel = buildDateAndBranchFilterClause(
+    {
+      range: dateOnlyFilters?.range,
+      from: dateOnlyFilters?.from,
+      to: dateOnlyFilters?.to,
+      branch: branch === 'Combined' ? 'all' : branch.toLowerCase(),
+    },
+    'c'
+  );
+
+  const brandClauseOrders = brandName
+    ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+  const brandClauseCancel = brandName
+    ? ` AND LOWER(c.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+
+  const [completedRows, cancelTicketsRaw, brandCompletedRows] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT COUNT(*) AS completed_cnt
+      FROM fact_orders o
+      WHERE o.status != 'CANCELLED' AND ${dateClauseOrders}${brandClauseOrders};
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        c.order_id,
+        COALESCE(c.short_id, c.order_id) AS short_id,
+        CASE
+          WHEN LOWER(c.provider) LIKE '%grab%' THEN 'GrabFood'
+          WHEN LOWER(c.provider) LIKE '%go%' THEN 'GoFood'
+          ELSE c.provider
+        END AS provider,
+        c.brand,
+        c.branch,
+        strftime(c.created_at, '%d %b %H:%M') AS created_at_formatted,
+        CAST(COALESCE(EXTRACT(HOUR FROM c.created_at), 0) AS INTEGER) AS hour_of_day,
+        COALESCE(c.gross_amount, 0) AS gross_amount,
+        COALESCE(c.net_payout, 0) AS net_payout,
+        COALESCE(c.cancellation_reason, 'UNSPECIFIED_PLATFORM_CANCEL') AS cancellation_reason,
+        COALESCE(c.cancelled_by, 'unspecified') AS cancelled_by,
+        c.prep_time_minutes,
+        COALESCE(c.meal_prep_time_raw, 'N/A') AS meal_prep_time_raw,
+        COALESCE(c.items_ordered, 1) AS items_ordered,
+        COALESCE(c.menu_items_summary, '') AS menu_items_summary
+      FROM dim_order_cancellations c
+      WHERE ${dateClauseCancel}${brandClauseCancel}
+      ORDER BY c.created_at DESC;
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT o.brand, COUNT(*) AS completed_cnt
+      FROM fact_orders o
+      WHERE o.status != 'CANCELLED' AND ${dateClauseOrders}${brandClauseOrders}
+      GROUP BY o.brand;
+    `),
+  ]);
+
+  const completedOrders = Number(completedRows[0]?.completed_cnt ?? 0);
+  const cancelledOrders = cancelTicketsRaw.length;
+  const totalOrdersWithCancels = completedOrders + cancelledOrders;
+  const cancellationRatePct =
+    totalOrdersWithCancels > 0
+      ? Number(((cancelledOrders / totalOrdersWithCancels) * 100).toFixed(2))
+      : 0;
+
+  const formatReasonMeta = (code: string, by: string, prepMin: number | null) => {
+    const upper = code.toUpperCase();
+    if (upper.includes('RESTAURANT_CLOSED')) {
+      return {
+        label: 'Store Closed / Early Opening Gap',
+        fix: 'Sync GrabFood/GoFood opening hours to 07:30 WIB or assign 06:15 WIB early opener',
+      };
+    }
+    if (upper.includes('PROBLEM_CONTACT_CUSTOMER')) {
+      return {
+        label: 'Customer Unreachable (Post-Prep)',
+        fix: 'Claim platform merchant reimbursement for cooked order (#photo proof in GrabMerchant)',
+      };
+    }
+    if (prepMin !== null && prepMin > 20) {
+      return {
+        label: 'Severe Prep Delay Walkout (>20m)',
+        fix: 'Auto-alert kitchen expeditor at 12m KPT before driver/customer cancels',
+      };
+    }
+    return {
+      label: by === 'provider' ? 'Aggregator Driver / System Cancel' : 'GoFood Unaccepted / Platform Cancel',
+      fix: 'Enable auto-accept on GoBiz/Klikit tablet & audit morning/peak stockout toggles',
+    };
+  };
+
+  const getWindowLabel = (hr: number): { label: string; range: string; note: string } => {
+    if (hr >= 6 && hr <= 8) {
+      return {
+        label: 'Early Opening (06:00–08:59)',
+        range: '06:00 – 08:59 WIB',
+        note: 'Tablet active before 07:30 WIB staff clock-in (`RESTAURANT_CLOSED` & unaccepted morning tickets)',
+      };
+    }
+    if (hr >= 9 && hr <= 13) {
+      return {
+        label: 'Mid-Morning & Lunch (09:00–13:59)',
+        range: '09:00 – 13:59 WIB',
+        note: 'Peak breakfast-to-lunch transition queue & post-prep customer/driver handoff friction',
+      };
+    }
+    if (hr >= 14 && hr <= 16) {
+      return {
+        label: 'Afternoon Transition (14:00–16:59)',
+        range: '14:00 – 16:59 WIB',
+        note: 'Shift handoff & prep replenishment window',
+      };
+    }
+    return {
+      label: 'Evening Rush (17:00–21:59)',
+      range: '17:00 – 21:59 WIB',
+      note: 'Dinner rush aggregator queue & SKU availability sync on GoFood',
+    };
+  };
+
+  let lostGrossGmv = 0;
+  let lostNetPayout = 0;
+  let postPrepWasteOrders = 0;
+  let postPrepWasteGrossGmv = 0;
+  let prePrepLostOrders = 0;
+  let prePrepLostGrossGmv = 0;
+  let earlyOpeningCancels = 0;
+  let earlyOpeningLostGmv = 0;
+  let gofoodCancels = 0;
+  let grabfoodCancels = 0;
+
+  const reasonMap = new Map<
+    string,
+    {
+      reason_code: string;
+      reason_label: string;
+      cancelled_by: string;
+      order_count: number;
+      lost_gross_gmv: number;
+      lost_net_payout: number;
+      operational_fix: string;
+    }
+  >();
+
+  const windowOrder = [
+    'Early Opening (06:00–08:59)',
+    'Mid-Morning & Lunch (09:00–13:59)',
+    'Afternoon Transition (14:00–16:59)',
+    'Evening Rush (17:00–21:59)',
+  ];
+  const windowMap = new Map<
+    string,
+    {
+      window_label: string;
+      time_range: string;
+      cancelled_orders: number;
+      lost_gross_gmv: number;
+      root_cause_note: string;
+    }
+  >();
+  for (const w of [6, 10, 15, 18]) {
+    const meta = getWindowLabel(w);
+    windowMap.set(meta.label, {
+      window_label: meta.label,
+      time_range: meta.range,
+      cancelled_orders: 0,
+      lost_gross_gmv: 0,
+      root_cause_note: meta.note,
+    });
+  }
+
+  const brandCancelMap = new Map<
+    string,
+    {
+      cancelled_orders: number;
+      lost_gross_gmv: number;
+      lost_net_payout: number;
+      post_prep_waste_count: number;
+    }
+  >();
+
+  const tickets: CanceledOrderItem[] = cancelTicketsRaw.map((r) => {
+    const gross = Number(r.gross_amount ?? 0);
+    const net = Number(r.net_payout ?? 0);
+    const hr = Number(r.hour_of_day ?? 0);
+    const prepMin =
+      r.prep_time_minutes !== null && r.prep_time_minutes !== undefined && Number(r.prep_time_minutes) > 0
+        ? Number(Number(r.prep_time_minutes).toFixed(1))
+        : null;
+    const isPostPrep = prepMin !== null && prepMin > 0;
+    const reasonCode = String(r.cancellation_reason || 'UNSPECIFIED_PLATFORM_CANCEL');
+    const cancelledBy = String(r.cancelled_by || 'unspecified');
+    const provider = String(r.provider || 'GoFood');
+    const bName = String(r.brand || 'Unknown');
+
+    lostGrossGmv += gross;
+    lostNetPayout += net;
+
+    if (isPostPrep) {
+      postPrepWasteOrders++;
+      postPrepWasteGrossGmv += gross;
+    } else {
+      prePrepLostOrders++;
+      prePrepLostGrossGmv += gross;
+    }
+
+    if (hr >= 6 && hr <= 8) {
+      earlyOpeningCancels++;
+      earlyOpeningLostGmv += gross;
+    }
+
+    if (provider.toLowerCase().includes('grab')) grabfoodCancels++;
+    else gofoodCancels++;
+
+    const rMeta = formatReasonMeta(reasonCode, cancelledBy, prepMin);
+    const rKey = `${reasonCode}::${rMeta.label}`;
+    const existingReason = reasonMap.get(rKey);
+    if (existingReason) {
+      existingReason.order_count++;
+      existingReason.lost_gross_gmv += gross;
+      existingReason.lost_net_payout += net;
+    } else {
+      reasonMap.set(rKey, {
+        reason_code: reasonCode,
+        reason_label: rMeta.label,
+        cancelled_by: cancelledBy,
+        order_count: 1,
+        lost_gross_gmv: gross,
+        lost_net_payout: net,
+        operational_fix: rMeta.fix,
+      });
+    }
+
+    const wMeta = getWindowLabel(hr);
+    const wEntry = windowMap.get(wMeta.label);
+    if (wEntry) {
+      wEntry.cancelled_orders++;
+      wEntry.lost_gross_gmv += gross;
+    }
+
+    const bEntry = brandCancelMap.get(bName) || {
+      cancelled_orders: 0,
+      lost_gross_gmv: 0,
+      lost_net_payout: 0,
+      post_prep_waste_count: 0,
+    };
+    bEntry.cancelled_orders++;
+    bEntry.lost_gross_gmv += gross;
+    bEntry.lost_net_payout += net;
+    if (isPostPrep) bEntry.post_prep_waste_count++;
+    brandCancelMap.set(bName, bEntry);
+
+    return {
+      order_id: String(r.order_id),
+      short_id: String(r.short_id || r.order_id),
+      provider,
+      brand: bName,
+      branch: String(r.branch || ''),
+      created_at_formatted: String(r.created_at_formatted || ''),
+      hour_of_day: hr,
+      daypart_label: wMeta.label,
+      gross_amount: gross,
+      net_payout: net,
+      cancellation_reason: reasonCode,
+      reason_label: rMeta.label,
+      cancelled_by: cancelledBy,
+      prep_stage: isPostPrep ? 'Post-Prep Food Waste' : 'Pre-Prep Lost Sale',
+      prep_time_minutes: prepMin,
+      meal_prep_time_raw: String(r.meal_prep_time_raw || 'N/A'),
+      items_ordered: Number(r.items_ordered ?? 1),
+      menu_items_summary: String(r.menu_items_summary || ''),
+    };
+  });
+
+  const reasons: CancellationReasonBreakdown[] = Array.from(reasonMap.values())
+    .sort((a, b) => b.lost_gross_gmv - a.lost_gross_gmv)
+    .map((item) => ({
+      ...item,
+      share_of_cancels_pct:
+        cancelledOrders > 0 ? Number(((item.order_count / cancelledOrders) * 100).toFixed(1)) : 0,
+    }));
+
+  const windows: CancellationWindowBreakdown[] = windowOrder.map((wLabel) => {
+    const item = windowMap.get(wLabel)!;
+    return {
+      ...item,
+      share_of_lost_gmv_pct:
+        lostGrossGmv > 0 ? Number(((item.lost_gross_gmv / lostGrossGmv) * 100).toFixed(1)) : 0,
+    };
+  });
+
+  const completedMap = new Map<string, number>();
+  for (const row of brandCompletedRows) {
+    completedMap.set(String(row.brand), Number(row.completed_cnt ?? 0));
+  }
+
+  const allBrandNames = Array.from(
+    new Set([...Array.from(completedMap.keys()), ...Array.from(brandCancelMap.keys())])
+  );
+
+  const brands: CancellationBrandBreakdown[] = allBrandNames
+    .map((b) => {
+      const comp = completedMap.get(b) ?? 0;
+      const cStats = brandCancelMap.get(b) || {
+        cancelled_orders: 0,
+        lost_gross_gmv: 0,
+        lost_net_payout: 0,
+        post_prep_waste_count: 0,
+      };
+      const tot = comp + cStats.cancelled_orders;
+      return {
+        brand: b,
+        completed_orders: comp,
+        cancelled_orders: cStats.cancelled_orders,
+        cancellation_rate_pct: tot > 0 ? Number(((cStats.cancelled_orders / tot) * 100).toFixed(2)) : 0,
+        lost_gross_gmv: cStats.lost_gross_gmv,
+        lost_net_payout: cStats.lost_net_payout,
+        post_prep_waste_count: cStats.post_prep_waste_count,
+      };
+    })
+    .filter((b) => b.cancelled_orders > 0 || b.completed_orders > 0)
+    .sort((a, b) => b.lost_gross_gmv - a.lost_gross_gmv || b.completed_orders - a.completed_orders);
+
+  return {
+    branch,
+    completedOrders,
+    cancelledOrders,
+    cancellationRatePct,
+    lostGrossGmv,
+    lostNetPayout,
+    postPrepWasteOrders,
+    postPrepWasteGrossGmv,
+    prePrepLostOrders,
+    prePrepLostGrossGmv,
+    earlyOpeningCancels,
+    earlyOpeningLostGmv,
+    gofoodCancels,
+    grabfoodCancels,
+    reasons,
+    windows,
+    brands,
+    tickets,
+  };
+}
+
+export async function getCanceledOrdersDiagnostic(
+  filters?: QueryFilters,
+  brandName?: string
+): Promise<CanceledOrdersDiagnostic> {
+  const [combined, kemang, greenville] = await Promise.all([
+    buildBranchCancellationProfile('Combined', filters, brandName),
+    buildBranchCancellationProfile('Kemang', filters, brandName),
+    buildBranchCancellationProfile('Greenville', filters, brandName),
+  ]);
+
+  const rawBranch = (filters?.branch || 'all').toLowerCase();
+  const activeBranchFilter: 'all' | 'kemang' | 'greenville' =
+    rawBranch === 'kemang' ? 'kemang' : rawBranch === 'greenville' ? 'greenville' : 'all';
+
+  return {
+    activeBranchFilter,
+    combined,
+    kemang,
+    greenville,
+  };
+}
 
 export async function getDataFreshness(filters?: QueryFilters): Promise<DataFreshnessSummary> {
   const [rawSources, itemCoverage] = await Promise.all([
@@ -1489,6 +2025,7 @@ export async function getDataFreshness(filters?: QueryFilters): Promise<DataFres
         strftime(MAX(ingested_at), '%Y-%m-%d %H:%M:%S') as max_ingested,
         MAX(source_file) as latest_file
       FROM fact_orders
+      WHERE status != 'CANCELLED'
       GROUP BY 1;
     `),
     getOrderItemCoverageAudit(filters),

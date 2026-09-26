@@ -729,6 +729,16 @@ async function ingestKlikitOrders(
       "Meal Preparation Time" as meal_prep_time_raw,
       TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*min', 1) AS DOUBLE) + 
       COALESCE(TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*sec', 1) AS DOUBLE) / 60.0, 0.0) as prep_time_minutes,
+      CASE
+        WHEN "Cancellation Reason" IS NULL OR TRIM("Cancellation Reason") IN ('', '-', 'N/A', 'null') THEN 'UNSPECIFIED_PLATFORM_CANCEL'
+        ELSE UPPER(TRIM("Cancellation Reason"))
+      END as cancellation_reason,
+      CASE
+        WHEN "Cancelled By" IS NULL OR TRIM("Cancelled By") IN ('', '-', 'N/A', 'null') THEN 'unspecified'
+        ELSE LOWER(TRIM("Cancelled By"))
+      END as cancelled_by,
+      trim(both '"' from COALESCE("Menu Items", '')) as menu_items_summary,
+      COALESCE(TRY_CAST("Items Ordered" AS INTEGER), 1) as items_ordered,
       TRY_STRPTIME("Created At", '%B %d, %Y %I:%M:%S%p') as created_at,
       TRY_STRPTIME("Delivered At", '%B %d, %Y %I:%M:%S%p') as delivered_at
     FROM read_csv_auto('${escSql(filePath)}', ignore_errors=true);
@@ -737,9 +747,10 @@ async function ingestKlikitOrders(
   const statRes = await conn.run(`
     SELECT 
       count(*) as cnt,
-      COALESCE(sum(gross_amount), 0) as total_gross,
+      COALESCE(sum(CASE WHEN UPPER(TRIM(status)) NOT IN ('CANCELLED', 'CANCELED') THEN gross_amount ELSE 0 END), 0) as total_gross,
       cast(min(created_at) as varchar) as min_ts,
-      cast(max(created_at) as varchar) as max_ts
+      cast(max(created_at) as varchar) as max_ts,
+      COALESCE(sum(CASE WHEN UPPER(TRIM(status)) IN ('CANCELLED', 'CANCELED') THEN 1 ELSE 0 END), 0) as cancelled_cnt
     FROM staging_upload_orders
   `);
   const rows = await statRes.getRows();
@@ -747,6 +758,7 @@ async function ingestKlikitOrders(
   const gross = Number(rows[0][1]);
   const minTs = rows[0][2] ? String(rows[0][2]) : null;
   const maxTs = rows[0][3] ? String(rows[0][3]) : null;
+  const cancelledCnt = Number(rows[0][4] ?? 0);
 
   const checkRes = await conn.run(`
     WITH staged AS (
@@ -837,11 +849,61 @@ async function ingestKlikitOrders(
       ingested_at = EXCLUDED.ingested_at;
   `);
 
+  await conn.run(`
+    INSERT INTO dim_order_cancellations (
+      order_id, external_id, short_id, provider, brand, branch, status,
+      gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
+      cancellation_reason, cancelled_by, menu_items_summary, items_ordered,
+      meal_prep_time_raw, prep_time_minutes, created_at, source_file
+    )
+    SELECT
+      CAST(order_id AS VARCHAR),
+      CAST(external_id AS VARCHAR),
+      CAST(short_id AS VARCHAR),
+      provider,
+      brand,
+      branch,
+      UPPER(TRIM(status)),
+      COALESCE(gross_amount, 0),
+      COALESCE(net_payout, 0),
+      COALESCE(merchant_promo_burn, 0),
+      COALESCE(provider_promo_burn, 0),
+      cancellation_reason,
+      cancelled_by,
+      menu_items_summary,
+      items_ordered,
+      COALESCE(meal_prep_time_raw, 'N/A'),
+      prep_time_minutes,
+      created_at,
+      '${escSql(canonicalName)}'
+    FROM staging_upload_orders
+    WHERE UPPER(TRIM(status)) IN ('CANCELLED', 'CANCELED')
+    ON CONFLICT (order_id) DO UPDATE SET
+      provider = EXCLUDED.provider,
+      brand = EXCLUDED.brand,
+      branch = EXCLUDED.branch,
+      status = EXCLUDED.status,
+      gross_amount = EXCLUDED.gross_amount,
+      net_payout = EXCLUDED.net_payout,
+      merchant_promo_burn = EXCLUDED.merchant_promo_burn,
+      provider_promo_burn = EXCLUDED.provider_promo_burn,
+      cancellation_reason = EXCLUDED.cancellation_reason,
+      cancelled_by = EXCLUDED.cancelled_by,
+      menu_items_summary = EXCLUDED.menu_items_summary,
+      items_ordered = EXCLUDED.items_ordered,
+      meal_prep_time_raw = EXCLUDED.meal_prep_time_raw,
+      prep_time_minutes = EXCLUDED.prep_time_minutes,
+      created_at = EXCLUDED.created_at,
+      source_file = EXCLUDED.source_file;
+  `);
+
+  await conn.run(`CHECKPOINT;`);
+
   let msg = `Saved as "${canonicalName}". `;
   if (newOrders === 0 && cnt > 0) {
-    msg += `All ${cnt} delivery orders were already recorded in DuckDB (${minTs ? minTs.split(" ")[0] : ""} to ${maxTs ? maxTs.split(" ")[0] : ""}). Deduplication preserved clean GMV with zero double-counting.`;
+    msg += `All ${cnt} delivery orders (${cancelledCnt} cancelled) were already recorded in DuckDB (${minTs ? minTs.split(" ")[0] : ""} to ${maxTs ? maxTs.split(" ")[0] : ""}). Deduplication preserved clean GMV with zero double-counting.`;
   } else {
-    msg += `Successfully merged ${newOrders} new delivery orders (${existingDupes} existing deduplicated) into DuckDB.`;
+    msg += `Successfully merged ${newOrders} new delivery orders (${existingDupes} existing deduplicated, ${cancelledCnt} cancelled tracked in Cancellation Ledger) into DuckDB.`;
   }
 
   return {

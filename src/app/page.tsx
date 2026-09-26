@@ -9,6 +9,7 @@ import {
   getHourlyDistribution,
   getHeroRecipeBoms,
   getKitchenSlaDiagnostic,
+  getCanceledOrdersDiagnostic,
   ALL_BRAND_NAV,
   getDataFreshness,
   brandToSlug,
@@ -19,6 +20,7 @@ import { BrandRevenueChart, ChannelPieChart, HourlyOrderChart } from "@/componen
 import { FilterBar } from "@/components/FilterBar";
 import { DataFreshnessBar } from "@/components/DataFreshnessBar";
 import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
+import { CanceledOrderInspector } from "@/components/CanceledOrderInspector";
 import {
   DollarSign,
   TrendingUp,
@@ -35,6 +37,7 @@ import {
   Building2,
   UtensilsCrossed,
   Users,
+  Ban,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +68,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     to: resolvedSearchParams?.to,
   };
 
-  const [summary, brands, branches, channels, topItems, hourly, heroBoms, slaDiagnostic, freshness] = await Promise.all([
+  const [summary, brands, branches, channels, topItems, hourly, heroBoms, slaDiagnostic, cancellationDiagnostic, freshness] = await Promise.all([
     getExecutiveSummary(filters),
     getBrandBreakdown(filters),
     getBranchComparison(filters),
@@ -74,6 +77,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     getHourlyDistribution(filters),
     getHeroRecipeBoms(filters),
     getKitchenSlaDiagnostic(filters),
+    getCanceledOrdersDiagnostic(filters),
     getDataFreshness(filters),
   ]);
 
@@ -218,7 +222,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       {/* =========================================================================
           Executive Performance Summary
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Metric 1: Gross GMV */}
         <div className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-blue">
           <div className="flex items-center justify-between text-zinc-400">
@@ -230,7 +234,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           </div>
           <div className="mt-3.5">
-            <div className="text-3xl sm:text-4xl font-bold text-white tracking-tight tabular-nums">
+            <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight tabular-nums">
               {formatRupiah(summary.total_gross_gmv)}
             </div>
             <div className="text-xs text-zinc-400 mt-2 flex items-center gap-1.5 font-mono">
@@ -255,14 +259,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           </div>
           <div className="mt-3.5">
-            <div className="text-3xl sm:text-4xl font-bold text-emerald-400 tracking-tight tabular-nums">
+            <div className="text-2xl sm:text-3xl font-bold text-emerald-400 tracking-tight tabular-nums">
               {formatRupiah(summary.total_net_payout)}
             </div>
             <div className="text-xs text-zinc-400 mt-2 flex items-center gap-1.5">
               <span className="font-mono font-semibold px-1.5 py-0.5 rounded text-xs bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
                 {summary.net_realization_rate}% Realized
               </span>
-              <span className="text-xs text-zinc-400">(Benchmark: ≥68%)</span>
+              <span className="text-xs text-zinc-400">(≥68%)</span>
             </div>
           </div>
         </div>
@@ -278,7 +282,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           </div>
           <div className="mt-3.5">
-            <div className="text-3xl sm:text-4xl font-bold text-rose-400 tracking-tight tabular-nums">
+            <div className="text-2xl sm:text-3xl font-bold text-rose-400 tracking-tight tabular-nums">
               {formatRupiah(summary.total_merchant_promo_burn)}
             </div>
             <div className="text-xs text-zinc-400 mt-2 flex items-center gap-1.5">
@@ -292,7 +296,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
                 {summary.promo_burn_rate_pct}% of GMV
               </span>
               <span className="text-xs text-zinc-400">
-                {summary.promo_burn_rate_pct > 15 ? "⚠️ Over 15% ceiling" : "Ceiling ≤15%"}
+                {summary.promo_burn_rate_pct > 15 ? "⚠️ >15%" : "≤15%"}
               </span>
             </div>
           </div>
@@ -309,20 +313,48 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             </div>
           </div>
           <div className="mt-3.5">
-            <div className="text-3xl sm:text-4xl font-bold text-white tracking-tight tabular-nums flex items-baseline gap-2.5">
+            <div className="text-2xl sm:text-3xl font-bold text-white tracking-tight tabular-nums flex items-baseline gap-2">
               <span>{summary.avg_prep_time_minutes > 0 ? `${summary.avg_prep_time_minutes} min` : "—"}</span>
               <span
-                className={`text-xs px-2 py-0.5 rounded font-mono font-medium border ${
+                className={`text-[11px] px-1.5 py-0.5 rounded font-mono font-medium border ${
                   summary.sla_breach_count > 0
                     ? "bg-amber-950/70 text-amber-300 border-amber-800/40"
                     : "bg-emerald-950/70 text-emerald-300 border-emerald-800/40"
                 }`}
               >
-                {summary.sla_breach_count} Breaches ({summary.sla_breach_rate_pct}%)
+                {summary.sla_breach_count} ({summary.sla_breach_rate_pct}%)
               </span>
             </div>
-            <div className="text-xs text-zinc-400 mt-2 font-mono text-xs">
-              Targets: Kemang ≤12m · Greenville ≤15m
+            <div className="text-xs text-zinc-400 mt-2 font-mono">
+              Kemang ≤12m · Greenville ≤15m
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 5: Cancelled Orders & Revenue Leakage */}
+        <div className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-rose">
+          <div className="flex items-center justify-between text-zinc-400">
+            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Cancelled & Leakage
+            </span>
+            <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
+              <Ban className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3.5">
+            <div className="text-2xl sm:text-3xl font-bold text-rose-300 tracking-tight tabular-nums flex items-baseline gap-2">
+              <span>{summary.cancelled_orders_count}</span>
+              <span className="text-[11px] px-1.5 py-0.5 rounded font-mono font-medium bg-rose-950/70 text-rose-300 border border-rose-800/40">
+                {summary.cancellation_rate_pct}% Rate
+              </span>
+            </div>
+            <div className="text-xs text-zinc-400 mt-2 font-mono flex items-center justify-between">
+              <span>Lost: <strong className="text-rose-400">{formatRupiah(summary.cancelled_gross_gmv)}</strong></span>
+              {summary.post_prep_cancelled_count > 0 && (
+                <span className="text-[10px] text-amber-300">
+                  {summary.post_prep_cancelled_count} cooked
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -504,6 +536,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           Track D: Kitchen Prep SLA Heatmap & Bottleneck Inspector
           ========================================================================= */}
       <KitchenSlaHeatmap diagnostic={slaDiagnostic} />
+
+      {/* =========================================================================
+          Cancelled Order & Revenue Leakage Inspector
+          ========================================================================= */}
+      <CanceledOrderInspector diagnostic={cancellationDiagnostic} />
 
       {/* =========================================================================
           Brand Detailed Performance Matrix Table

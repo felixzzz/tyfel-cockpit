@@ -493,9 +493,107 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
         is_hero_bom = EXCLUDED.is_hero_bom,
         updated_at = EXCLUDED.updated_at;
     `);
+
+    await conn.run(`
+      CREATE TABLE IF NOT EXISTS dim_order_cancellations (
+        order_id VARCHAR PRIMARY KEY,
+        external_id VARCHAR,
+        short_id VARCHAR,
+        provider VARCHAR,
+        brand VARCHAR,
+        branch VARCHAR,
+        status VARCHAR,
+        gross_amount DOUBLE,
+        net_payout DOUBLE,
+        merchant_promo_burn DOUBLE,
+        provider_promo_burn DOUBLE,
+        cancellation_reason VARCHAR,
+        cancelled_by VARCHAR,
+        menu_items_summary VARCHAR,
+        items_ordered INTEGER,
+        meal_prep_time_raw VARCHAR,
+        prep_time_minutes DOUBLE,
+        created_at TIMESTAMP,
+        source_file VARCHAR
+      );
+    `);
+
+    const rawReportsDir =
+      process.env.RAW_REPORTS_DIR ||
+      path.resolve(process.cwd(), '../reports/raw');
+
+    if (fs.existsSync(rawReportsDir)) {
+      const klikitOrderFiles = fs
+        .readdirSync(rawReportsDir)
+        .filter((f) => f.startsWith('klikit_orders_') && f.endsWith('.csv'))
+        .sort();
+
+      for (const f of klikitOrderFiles) {
+        const fullCsvPath = path.join(rawReportsDir, f);
+        await conn.run(`
+          INSERT INTO dim_order_cancellations (
+            order_id, external_id, short_id, provider, brand, branch, status,
+            gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
+            cancellation_reason, cancelled_by, menu_items_summary, items_ordered,
+            meal_prep_time_raw, prep_time_minutes, created_at, source_file
+          )
+          SELECT
+            CAST("Order ID" AS VARCHAR) AS order_id,
+            CAST("External ID" AS VARCHAR) AS external_id,
+            CAST("Short ID" AS VARCHAR) AS short_id,
+            CASE
+              WHEN LOWER("Provider") LIKE '%grab%' THEN 'GrabFood'
+              WHEN LOWER("Provider") LIKE '%go%' THEN 'GoFood'
+              ELSE "Provider"
+            END AS provider,
+            trim(both '"' from "Brand") AS brand,
+            "Branch" AS branch,
+            UPPER(TRIM("Status")) AS status,
+            COALESCE(TRY_CAST("Gross Order Value" AS DOUBLE), 0) AS gross_amount,
+            COALESCE(TRY_CAST("Net Order Value" AS DOUBLE), 0) AS net_payout,
+            COALESCE(TRY_CAST("Merchant Discount" AS DOUBLE), 0) AS merchant_promo_burn,
+            COALESCE(TRY_CAST("Provider Discount" AS DOUBLE), 0) AS provider_promo_burn,
+            CASE
+              WHEN "Cancellation Reason" IS NULL OR TRIM("Cancellation Reason") IN ('', '-', 'N/A', 'null') THEN 'UNSPECIFIED_PLATFORM_CANCEL'
+              ELSE UPPER(TRIM("Cancellation Reason"))
+            END AS cancellation_reason,
+            CASE
+              WHEN "Cancelled By" IS NULL OR TRIM("Cancelled By") IN ('', '-', 'N/A', 'null') THEN 'unspecified'
+              ELSE LOWER(TRIM("Cancelled By"))
+            END AS cancelled_by,
+            trim(both '"' from COALESCE("Menu Items", '')) AS menu_items_summary,
+            COALESCE(TRY_CAST("Items Ordered" AS INTEGER), 1) AS items_ordered,
+            COALESCE("Meal Preparation Time", 'N/A') AS meal_prep_time_raw,
+            TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*min', 1) AS DOUBLE) +
+              COALESCE(TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*sec', 1) AS DOUBLE) / 60.0, 0.0) AS prep_time_minutes,
+            TRY_STRPTIME("Created At", '%B %d, %Y %I:%M:%S%p') AS created_at,
+            '${sqlEscape(f)}' AS source_file
+          FROM read_csv_auto('${sqlEscape(fullCsvPath)}', ignore_errors=true)
+          WHERE UPPER(TRIM("Status")) IN ('CANCELLED', 'CANCELED')
+          ON CONFLICT (order_id) DO UPDATE SET
+            provider = EXCLUDED.provider,
+            brand = EXCLUDED.brand,
+            branch = EXCLUDED.branch,
+            status = EXCLUDED.status,
+            gross_amount = EXCLUDED.gross_amount,
+            net_payout = EXCLUDED.net_payout,
+            merchant_promo_burn = EXCLUDED.merchant_promo_burn,
+            provider_promo_burn = EXCLUDED.provider_promo_burn,
+            cancellation_reason = EXCLUDED.cancellation_reason,
+            cancelled_by = EXCLUDED.cancelled_by,
+            menu_items_summary = EXCLUDED.menu_items_summary,
+            items_ordered = EXCLUDED.items_ordered,
+            meal_prep_time_raw = EXCLUDED.meal_prep_time_raw,
+            prep_time_minutes = EXCLUDED.prep_time_minutes,
+            created_at = EXCLUDED.created_at,
+            source_file = EXCLUDED.source_file;
+        `);
+      }
+    }
+
     await conn.run(`CHECKPOINT;`);
   } catch (err) {
-    console.warn('[DuckDB Seed Notice] Could not write dim_recipes on init:', err);
+    console.warn('[DuckDB Seed Notice] Could not write dim_recipes / dim_order_cancellations on init:', err);
   } finally {
     try {
       conn.closeSync();
