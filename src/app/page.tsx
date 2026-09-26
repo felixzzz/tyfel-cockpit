@@ -8,6 +8,7 @@ import {
   getTopItems,
   getHourlyDistribution,
   getHeroRecipeBoms,
+  getKitchenSlaDiagnostic,
   ALL_BRAND_NAV,
   getDataFreshness,
   brandToSlug,
@@ -17,6 +18,7 @@ import { getBrandTheme, getChannelColor } from "@/lib/brandTheme";
 import { BrandRevenueChart, ChannelPieChart, HourlyOrderChart } from "@/components/Charts";
 import { FilterBar } from "@/components/FilterBar";
 import { DataFreshnessBar } from "@/components/DataFreshnessBar";
+import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
 import {
   DollarSign,
   TrendingUp,
@@ -62,7 +64,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     to: resolvedSearchParams?.to,
   };
 
-  const [summary, brands, branches, channels, topItems, hourly, heroBoms, freshness] = await Promise.all([
+  const [summary, brands, branches, channels, topItems, hourly, heroBoms, slaDiagnostic, freshness] = await Promise.all([
     getExecutiveSummary(filters),
     getBrandBreakdown(filters),
     getBranchComparison(filters),
@@ -70,7 +72,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     getTopItems(8, filters),
     getHourlyDistribution(filters),
     getHeroRecipeBoms(filters),
-    getDataFreshness(),
+    getKitchenSlaDiagnostic(filters),
+    getDataFreshness(filters),
   ]);
 
   // Construct query string for persistent brand navigation
@@ -488,6 +491,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           <HourlyOrderChart data={hourly} />
         </div>
       </div>
+
+      {/* =========================================================================
+          Track D: Kitchen Prep SLA Heatmap & Bottleneck Inspector
+          ========================================================================= */}
+      <KitchenSlaHeatmap diagnostic={slaDiagnostic} />
 
       {/* =========================================================================
           Brand Detailed Performance Matrix Table

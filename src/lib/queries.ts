@@ -281,7 +281,28 @@ export interface BreachTicketItem {
   basket_summary: string;
 }
 
+export interface BranchKitchenSlaProfile {
+  branch: 'Kemang' | 'Greenville';
+  kitchenType: string;
+  slaTargetMin: number;
+  totalOrders: number;
+  totalKptOrders: number;
+  avgPrepTimeMin: number;
+  p90PrepTimeMin: number;
+  totalBreaches: number;
+  totalRedAlerts: number;
+  breachRatePct: number;
+  worstDayHourLabel: string;
+  worstDayHourPrepMin: number;
+  heatmapCells: SlaHeatmapCell[];
+  dayparts: DaypartSlaStats[];
+  topBreachTickets: BreachTicketItem[];
+}
+
 export interface KitchenSlaDiagnostic {
+  activeBranchFilter: 'all' | 'kemang' | 'greenville';
+  kemang: BranchKitchenSlaProfile;
+  greenville: BranchKitchenSlaProfile;
   totalKptOrders: number;
   avgPrepTimeMin: number;
   p90PrepTimeMin: number;
@@ -1181,27 +1202,28 @@ export async function getOrderItemCoverageAudit(filters?: QueryFilters): Promise
   };
 }
 
-export async function getKitchenSlaDiagnostic(
-  filters?: QueryFilters,
-  brandName?: string
-): Promise<KitchenSlaDiagnostic> {
-  const baseWhere = buildWhereClause(filters, 'o');
-  const brandClause = brandName ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'` : '';
-  const whereClause = `${baseWhere}${brandClause} AND o.created_at IS NOT NULL`;
+async function buildBranchKitchenProfile(
+  branch: 'Kemang' | 'Greenville',
+  kitchenType: string,
+  slaTargetMin: number,
+  dateAndBrandWhere: string
+): Promise<BranchKitchenSlaProfile> {
+  const branchWhere = `${dateAndBrandWhere} AND LOWER(o.branch) = '${branch.toLowerCase()}' AND o.created_at IS NOT NULL`;
 
-  // 1. Overall KPT summary + P90
   const kptSummaryRows = await runQuery<Record<string, unknown>>(`
     SELECT
+      COUNT(*) AS total_orders,
       COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS total_kpt_orders,
       COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
       COALESCE(ROUND(QUANTILE_CONT(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS p90_prep_min,
-      COALESCE(SUM(CASE WHEN o.kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS total_breaches,
-      COALESCE(SUM(CASE WHEN o.kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS total_red_alerts
+      COALESCE(SUM(CASE WHEN o.prep_time_minutes > ${slaTargetMin} THEN 1 ELSE 0 END), 0) AS total_breaches,
+      COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS total_red_alerts
     FROM fact_orders o
-    WHERE ${whereClause};
+    WHERE ${branchWhere};
   `);
 
   const sumRow = kptSummaryRows[0] || {};
+  const totalOrders = Number(sumRow.total_orders ?? 0);
   const totalKptOrders = Number(sumRow.total_kpt_orders ?? 0);
   const avgPrepTimeMin = Number(sumRow.avg_prep_min ?? 0);
   const p90PrepTimeMin = Number(sumRow.p90_prep_min ?? 0);
@@ -1209,7 +1231,6 @@ export async function getKitchenSlaDiagnostic(
   const totalRedAlerts = Number(sumRow.total_red_alerts ?? 0);
   const breachRatePct = totalKptOrders > 0 ? Number(((totalBreaches / totalKptOrders) * 100).toFixed(1)) : 0;
 
-  // 2. Day of Week x Hour of Day Heatmap
   const heatmapRaw = await runQuery<Record<string, unknown>>(`
     SELECT
       CAST(EXTRACT(DOW FROM o.created_at) AS INTEGER) AS dow,
@@ -1217,10 +1238,10 @@ export async function getKitchenSlaDiagnostic(
       COUNT(*) AS order_count,
       COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
       COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(SUM(CASE WHEN o.kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches,
-      COALESCE(SUM(CASE WHEN o.kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS red_alerts
+      COALESCE(SUM(CASE WHEN o.prep_time_minutes > ${slaTargetMin} THEN 1 ELSE 0 END), 0) AS sla_breaches,
+      COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts
     FROM fact_orders o
-    WHERE ${whereClause}
+    WHERE ${branchWhere}
     GROUP BY 1, 2
     ORDER BY 1 ASC, 2 ASC;
   `);
@@ -1249,7 +1270,7 @@ export async function getKitchenSlaDiagnostic(
     const cellBreachRate = kptSampleCount > 0 ? Number(((slaBreaches / kptSampleCount) * 100).toFixed(1)) : 0;
     const dowLabel = DOW_LABELS[dow] || 'Day';
 
-    if (kptSampleCount >= 2 && avgPrep > worstDayHourPrepMin) {
+    if (kptSampleCount >= 1 && avgPrep > worstDayHourPrepMin) {
       worstDayHourPrepMin = avgPrep;
       worstDayHourLabel = `${dowLabel} ${String(hour).padStart(2, '0')}:00`;
     }
@@ -1267,7 +1288,6 @@ export async function getKitchenSlaDiagnostic(
     };
   });
 
-  // 3. 5-Daypart SLA Breakdown
   const daypartRaw = await runQuery<Record<string, unknown>>(`
     SELECT
       CASE
@@ -1280,11 +1300,11 @@ export async function getKitchenSlaDiagnostic(
       COUNT(*) AS order_count,
       COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
       COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(SUM(CASE WHEN o.kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches,
-      COALESCE(SUM(CASE WHEN o.kpt_red_alert = true THEN 1 ELSE 0 END), 0) AS red_alerts,
+      COALESCE(SUM(CASE WHEN o.prep_time_minutes > ${slaTargetMin} THEN 1 ELSE 0 END), 0) AS sla_breaches,
+      COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts,
       COALESCE(SUM(o.gross_amount), 0) AS gross_gmv
     FROM fact_orders o
-    WHERE ${whereClause}
+    WHERE ${branchWhere}
     GROUP BY 1;
   `);
 
@@ -1313,7 +1333,6 @@ export async function getKitchenSlaDiagnostic(
     };
   });
 
-  // 4. Worst SLA Breach & Red Alert Ticket Inspector (joined with fact_order_items basket)
   const breachTicketsRaw = await runQuery<Record<string, unknown>>(`
     WITH basket AS (
       SELECT
@@ -1335,20 +1354,19 @@ export async function getKitchenSlaDiagnostic(
       END AS provider,
       strftime(o.created_at, '%d %b %H:%M') AS created_at_formatted,
       ROUND(o.prep_time_minutes, 1) AS prep_time_minutes,
-      CASE WHEN LOWER(o.branch) = 'kemang' THEN 12.0 ELSE 15.0 END AS sla_target_min,
-      ROUND(o.prep_time_minutes - (CASE WHEN LOWER(o.branch) = 'kemang' THEN 12.0 ELSE 15.0 END), 1) AS overage_minutes,
-      COALESCE(o.kpt_red_alert, false) AS is_red_alert,
+      ${slaTargetMin} AS sla_target_min,
+      ROUND(o.prep_time_minutes - ${slaTargetMin}, 1) AS overage_minutes,
+      CASE WHEN o.prep_time_minutes > 20.0 THEN true ELSE false END AS is_red_alert,
       COALESCE(o.gross_amount, 0) AS gross_amount,
       COALESCE(b.total_units, 0) AS total_units,
       COALESCE(b.distinct_skus, 0) AS distinct_skus,
       COALESCE(b.basket_summary, 'Basket items pending Klikit Items CSV') AS basket_summary
     FROM fact_orders o
     LEFT JOIN basket b ON o.order_id = b.order_id
-    WHERE ${whereClause}
-      AND o.kpt_sla_breach = true
-      AND o.prep_time_minutes IS NOT NULL
+    WHERE ${branchWhere}
+      AND o.prep_time_minutes > ${slaTargetMin}
     ORDER BY o.prep_time_minutes DESC
-    LIMIT 10;
+    LIMIT 8;
   `);
 
   const topBreachTickets: BreachTicketItem[] = breachTicketsRaw.map((t) => ({
@@ -1358,7 +1376,7 @@ export async function getKitchenSlaDiagnostic(
     provider: String(t.provider),
     created_at_formatted: String(t.created_at_formatted || ''),
     prep_time_minutes: Number(t.prep_time_minutes ?? 0),
-    sla_target_min: Number(t.sla_target_min ?? 15),
+    sla_target_min: Number(t.sla_target_min ?? slaTargetMin),
     overage_minutes: Number(t.overage_minutes ?? 0),
     is_red_alert: Boolean(t.is_red_alert),
     gross_amount: Number(t.gross_amount ?? 0),
@@ -1368,6 +1386,10 @@ export async function getKitchenSlaDiagnostic(
   }));
 
   return {
+    branch,
+    kitchenType,
+    slaTargetMin,
+    totalOrders,
     totalKptOrders,
     avgPrepTimeMin,
     p90PrepTimeMin,
@@ -1379,6 +1401,60 @@ export async function getKitchenSlaDiagnostic(
     heatmapCells,
     dayparts,
     topBreachTickets,
+  };
+}
+
+export async function getKitchenSlaDiagnostic(
+  filters?: QueryFilters,
+  brandName?: string
+): Promise<KitchenSlaDiagnostic> {
+  // Build date-only + brand where clause so we always compute accurate Kemang & Greenville profiles
+  const dateOnlyFilters: QueryFilters = {
+    range: filters?.range,
+    from: filters?.from,
+    to: filters?.to,
+  };
+  const dateWhere = buildWhereClause(dateOnlyFilters, 'o');
+  const brandClause = brandName ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'` : '';
+  const dateAndBrandWhere = `${dateWhere}${brandClause}`;
+
+  const [kemang, greenville] = await Promise.all([
+    buildBranchKitchenProfile('Kemang', 'Cloud Kitchen · Delivery Only', 12.0, dateAndBrandWhere),
+    buildBranchKitchenProfile('Greenville', 'Flagship Kitchen · Dine-In & Delivery', 15.0, dateAndBrandWhere),
+  ]);
+
+  const rawBranch = (filters?.branch || 'all').toLowerCase();
+  const activeBranchFilter: 'all' | 'kemang' | 'greenville' =
+    rawBranch === 'kemang' ? 'kemang' : rawBranch === 'greenville' ? 'greenville' : 'all';
+
+  const primaryProfile = activeBranchFilter === 'kemang' ? kemang : greenville;
+
+  return {
+    activeBranchFilter,
+    kemang,
+    greenville,
+    totalKptOrders: kemang.totalKptOrders + greenville.totalKptOrders,
+    avgPrepTimeMin: primaryProfile.avgPrepTimeMin,
+    p90PrepTimeMin: primaryProfile.p90PrepTimeMin,
+    totalBreaches: kemang.totalBreaches + greenville.totalBreaches,
+    totalRedAlerts: kemang.totalRedAlerts + greenville.totalRedAlerts,
+    breachRatePct:
+      kemang.totalKptOrders + greenville.totalKptOrders > 0
+        ? Number(
+            (
+              ((kemang.totalBreaches + greenville.totalBreaches) /
+                (kemang.totalKptOrders + greenville.totalKptOrders)) *
+              100
+            ).toFixed(1)
+          )
+        : 0,
+    worstDayHourLabel: primaryProfile.worstDayHourLabel,
+    worstDayHourPrepMin: primaryProfile.worstDayHourPrepMin,
+    heatmapCells: primaryProfile.heatmapCells,
+    dayparts: primaryProfile.dayparts,
+    topBreachTickets: [...kemang.topBreachTickets, ...greenville.topBreachTickets]
+      .sort((a, b) => b.prep_time_minutes - a.prep_time_minutes)
+      .slice(0, 10),
   };
 }
 

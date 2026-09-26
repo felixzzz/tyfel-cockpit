@@ -14,6 +14,7 @@ import {
 } from "@/components/Charts";
 import { FilterBar } from "@/components/FilterBar";
 import { DataFreshnessBar } from "@/components/DataFreshnessBar";
+import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
 import {
   ArrowLeft,
   Flame,
@@ -24,7 +25,7 @@ import {
   Layers,
   Sparkles,
   Boxes,
-            } from "lucide-react";
+} from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +59,7 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
 
   const [brandData, freshness] = await Promise.all([
     getBrandDetail(brandId, filters),
-    getDataFreshness(),
+    getDataFreshness(filters),
   ]);
 
   // Preserve query string for brand switching and back navigation
@@ -101,6 +102,7 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
     skus,
     menuEngineering,
     menuEngineeringSummary,
+    slaDiagnostic,
     channels,
     branches,
     hourly,
@@ -589,6 +591,16 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
               )}
             </div>
           </div>
+
+          {/* =========================================================================
+              Track D: Brand Kitchen Prep SLA Heatmap & Bottleneck Inspector
+              ========================================================================= */}
+          <KitchenSlaHeatmap
+            diagnostic={slaDiagnostic}
+            title={`${brandName} — Kitchen Prep SLA Heatmap & Breach Inspector`}
+            subtitle={`Day × hour KPT matrix, daypart rush strain, and slow ticket basket breakdown for ${brandName}`}
+            showBrandColumn={false}
+          />
 
           {/* =========================================================================
               Track B: Recipe BOM & Theoretical Food Cost Engine (Menu Engineering Matrix)

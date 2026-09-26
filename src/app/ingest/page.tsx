@@ -54,6 +54,35 @@ interface RawFileAudit {
   dateRangeLabel?: string;
 }
 
+interface CoverageBrandRow {
+  brand: string;
+  branch: string;
+  channel_group: string;
+  total_orders: number;
+  orders_with_items: number;
+  orphan_orders: number;
+  coverage_pct: number;
+  order_gross_gmv: number;
+  item_exploded_revenue: number;
+  total_units_sold: number;
+  min_date: string | null;
+  max_date: string | null;
+  status: "Complete" | "Partial Gap" | "Missing Items CSV";
+}
+
+interface CoverageAuditState {
+  totalOrders: number;
+  ordersWithItems: number;
+  orphanOrdersCount: number;
+  orderCoveragePct: number;
+  totalItemRows: number;
+  totalUnitsSold: number;
+  orderGrossGmv: number;
+  itemExplodedRevenue: number;
+  unreconciledGmvGap: number;
+  brandBreakdown: CoverageBrandRow[];
+}
+
 function formatRupiah(amount: number): string {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
@@ -116,10 +145,11 @@ export default function IngestPage() {
   const [uploadResults, setUploadResults] = useState<IngestSummary[] | null>(null);
   const [uploadErrors, setUploadErrors] = useState<{ fileName: string; error: string }[]>([]);
   const [rawFiles, setRawFiles] = useState<RawFileAudit[]>([]);
+  const [coverageAudit, setCoverageAudit] = useState<CoverageAuditState | null>(null);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch current raw files
+  // Fetch current raw files and order-to-item coverage audit
   const loadRawFiles = async () => {
     setIsLoadingFiles(true);
     try {
@@ -127,6 +157,9 @@ export default function IngestPage() {
       const data = await res.json();
       if (data.success && Array.isArray(data.files)) {
         setRawFiles(data.files);
+      }
+      if (data.success && data.coverageAudit) {
+        setCoverageAudit(data.coverageAudit);
       }
     } catch (err) {
       console.error("Failed to load raw files:", err);
@@ -492,6 +525,99 @@ export default function IngestPage() {
               </div>
             )}
           </div>
+
+          {/* Track A: Order-to-Item Coverage & Reconciliation Matrix */}
+          {coverageAudit && (
+            <div className="cockpit-panel rounded-2xl p-6 lg:p-8 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-white">
+                      Order-to-Item Coverage & Reconciliation Matrix
+                    </h3>
+                    <span
+                      className={`text-[11px] font-mono px-2 py-0.5 rounded border ${
+                        coverageAudit.orderCoveragePct >= 95
+                          ? "bg-emerald-950/60 text-emerald-300 border-emerald-800/40"
+                          : "bg-amber-950/60 text-amber-300 border-amber-800/40"
+                      }`}
+                    >
+                      {coverageAudit.orderCoveragePct}% Linked
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Verifies every order in <code className="text-zinc-300">fact_orders</code> has matching SKU line-items in <code className="text-zinc-300">fact_order_items</code> for Menu Engineering BOM accuracy
+                  </p>
+                </div>
+
+                <div className="text-right font-mono text-xs text-zinc-400">
+                  <span className="text-white font-semibold">{coverageAudit.ordersWithItems.toLocaleString()}</span> / {coverageAudit.totalOrders.toLocaleString()} orders ·{" "}
+                  <span className="text-emerald-400 font-semibold">{coverageAudit.totalUnitsSold.toLocaleString()}</span> units
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-white/[0.08] rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.08] bg-white/[0.02] text-zinc-400 uppercase font-semibold tracking-wider text-[11px]">
+                      <th className="py-2.5 px-3">Brand</th>
+                      <th className="py-2.5 px-3">Branch & Stream</th>
+                      <th className="py-2.5 px-3 text-right">Orders</th>
+                      <th className="py-2.5 px-3 text-right">With Items</th>
+                      <th className="py-2.5 px-3 text-right">Orphans</th>
+                      <th className="py-2.5 px-3 text-right">Units Sold</th>
+                      <th className="py-2.5 px-3">Date Span</th>
+                      <th className="py-2.5 px-3 text-right">Coverage</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/[0.04] font-mono">
+                    {coverageAudit.brandBreakdown.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-white/[0.02]">
+                        <td className="py-2.5 px-3 font-sans font-semibold text-white">
+                          {row.brand}
+                        </td>
+                        <td className="py-2.5 px-3 text-zinc-400">
+                          {row.branch} · <span className="text-zinc-300">{row.channel_group}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-zinc-300 tabular-nums">
+                          {row.total_orders.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-emerald-400 font-semibold tabular-nums">
+                          {row.orders_with_items.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">
+                          {row.orphan_orders > 0 ? (
+                            <span className="text-amber-400 font-semibold">{row.orphan_orders.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-zinc-600">0</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-zinc-300 tabular-nums">
+                          {row.total_units_sold.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-zinc-400 text-[11px]">
+                          {row.min_date || "—"} → {row.max_date || "—"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                              row.status === "Complete"
+                                ? "bg-emerald-950/60 text-emerald-300 border-emerald-800/40"
+                                : row.status === "Partial Gap"
+                                ? "bg-amber-950/60 text-amber-300 border-amber-800/40"
+                                : "bg-rose-950/60 text-rose-300 border-rose-800/40"
+                            }`}
+                          >
+                            {row.coverage_pct}% · {row.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Currently Synced Raw Files in Storage */}
           <div className="cockpit-panel rounded-2xl p-6 lg:p-8 space-y-4">
