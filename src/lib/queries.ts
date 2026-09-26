@@ -282,7 +282,7 @@ export interface BreachTicketItem {
 }
 
 export interface BranchKitchenSlaProfile {
-  branch: 'Kemang' | 'Greenville';
+  branch: 'Combined' | 'Kemang' | 'Greenville';
   kitchenType: string;
   slaTargetMin: number;
   totalOrders: number;
@@ -301,6 +301,7 @@ export interface BranchKitchenSlaProfile {
 
 export interface KitchenSlaDiagnostic {
   activeBranchFilter: 'all' | 'kemang' | 'greenville';
+  combined: BranchKitchenSlaProfile;
   kemang: BranchKitchenSlaProfile;
   greenville: BranchKitchenSlaProfile;
   totalKptOrders: number;
@@ -1203,12 +1204,24 @@ export async function getOrderItemCoverageAudit(filters?: QueryFilters): Promise
 }
 
 async function buildBranchKitchenProfile(
-  branch: 'Kemang' | 'Greenville',
+  branch: 'Combined' | 'Kemang' | 'Greenville',
   kitchenType: string,
   slaTargetMin: number,
   dateAndBrandWhere: string
 ): Promise<BranchKitchenSlaProfile> {
-  const branchWhere = `${dateAndBrandWhere} AND LOWER(o.branch) = '${branch.toLowerCase()}' AND o.created_at IS NOT NULL`;
+  const branchClause =
+    branch === 'Combined' ? '' : ` AND LOWER(o.branch) = '${branch.toLowerCase()}'`;
+  const branchWhere = `${dateAndBrandWhere}${branchClause} AND o.created_at IS NOT NULL`;
+
+  const breachExpr =
+    branch === 'Combined'
+      ? `(CASE WHEN LOWER(o.branch) = 'kemang' THEN o.prep_time_minutes > 12.0 ELSE o.prep_time_minutes > 15.0 END)`
+      : `(o.prep_time_minutes > ${slaTargetMin})`;
+
+  const targetExpr =
+    branch === 'Combined'
+      ? `(CASE WHEN LOWER(o.branch) = 'kemang' THEN 12.0 ELSE 15.0 END)`
+      : `${slaTargetMin}`;
 
   const kptSummaryRows = await runQuery<Record<string, unknown>>(`
     SELECT
@@ -1216,7 +1229,7 @@ async function buildBranchKitchenProfile(
       COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS total_kpt_orders,
       COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
       COALESCE(ROUND(QUANTILE_CONT(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS p90_prep_min,
-      COALESCE(SUM(CASE WHEN o.prep_time_minutes > ${slaTargetMin} THEN 1 ELSE 0 END), 0) AS total_breaches,
+      COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS total_breaches,
       COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS total_red_alerts
     FROM fact_orders o
     WHERE ${branchWhere};
@@ -1238,7 +1251,7 @@ async function buildBranchKitchenProfile(
       COUNT(*) AS order_count,
       COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
       COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(SUM(CASE WHEN o.prep_time_minutes > ${slaTargetMin} THEN 1 ELSE 0 END), 0) AS sla_breaches,
+      COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS sla_breaches,
       COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts
     FROM fact_orders o
     WHERE ${branchWhere}
@@ -1300,7 +1313,7 @@ async function buildBranchKitchenProfile(
       COUNT(*) AS order_count,
       COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
       COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(SUM(CASE WHEN o.prep_time_minutes > ${slaTargetMin} THEN 1 ELSE 0 END), 0) AS sla_breaches,
+      COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS sla_breaches,
       COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts,
       COALESCE(SUM(o.gross_amount), 0) AS gross_gmv
     FROM fact_orders o
@@ -1354,8 +1367,8 @@ async function buildBranchKitchenProfile(
       END AS provider,
       strftime(o.created_at, '%d %b %H:%M') AS created_at_formatted,
       ROUND(o.prep_time_minutes, 1) AS prep_time_minutes,
-      ${slaTargetMin} AS sla_target_min,
-      ROUND(o.prep_time_minutes - ${slaTargetMin}, 1) AS overage_minutes,
+      ${targetExpr} AS sla_target_min,
+      ROUND(o.prep_time_minutes - ${targetExpr}, 1) AS overage_minutes,
       CASE WHEN o.prep_time_minutes > 20.0 THEN true ELSE false END AS is_red_alert,
       COALESCE(o.gross_amount, 0) AS gross_amount,
       COALESCE(b.total_units, 0) AS total_units,
@@ -1364,9 +1377,9 @@ async function buildBranchKitchenProfile(
     FROM fact_orders o
     LEFT JOIN basket b ON o.order_id = b.order_id
     WHERE ${branchWhere}
-      AND o.prep_time_minutes > ${slaTargetMin}
+      AND ${breachExpr}
     ORDER BY o.prep_time_minutes DESC
-    LIMIT 8;
+    LIMIT 10;
   `);
 
   const topBreachTickets: BreachTicketItem[] = breachTicketsRaw.map((t) => ({
@@ -1408,7 +1421,7 @@ export async function getKitchenSlaDiagnostic(
   filters?: QueryFilters,
   brandName?: string
 ): Promise<KitchenSlaDiagnostic> {
-  // Build date-only + brand where clause so we always compute accurate Kemang & Greenville profiles
+  // Build date-only + brand where clause so we always compute accurate Combined, Kemang, and Greenville profiles
   const dateOnlyFilters: QueryFilters = {
     range: filters?.range,
     from: filters?.from,
@@ -1418,7 +1431,8 @@ export async function getKitchenSlaDiagnostic(
   const brandClause = brandName ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'` : '';
   const dateAndBrandWhere = `${dateWhere}${brandClause}`;
 
-  const [kemang, greenville] = await Promise.all([
+  const [combined, kemang, greenville] = await Promise.all([
+    buildBranchKitchenProfile('Combined', 'Kemang (≤12m) + Greenville (≤15m)', 13.5, dateAndBrandWhere),
     buildBranchKitchenProfile('Kemang', 'Cloud Kitchen · Delivery Only', 12.0, dateAndBrandWhere),
     buildBranchKitchenProfile('Greenville', 'Flagship Kitchen · Dine-In & Delivery', 15.0, dateAndBrandWhere),
   ]);
@@ -1427,34 +1441,29 @@ export async function getKitchenSlaDiagnostic(
   const activeBranchFilter: 'all' | 'kemang' | 'greenville' =
     rawBranch === 'kemang' ? 'kemang' : rawBranch === 'greenville' ? 'greenville' : 'all';
 
-  const primaryProfile = activeBranchFilter === 'kemang' ? kemang : greenville;
+  const primaryProfile =
+    activeBranchFilter === 'kemang'
+      ? kemang
+      : activeBranchFilter === 'greenville'
+      ? greenville
+      : combined;
 
   return {
     activeBranchFilter,
+    combined,
     kemang,
     greenville,
-    totalKptOrders: kemang.totalKptOrders + greenville.totalKptOrders,
+    totalKptOrders: primaryProfile.totalKptOrders,
     avgPrepTimeMin: primaryProfile.avgPrepTimeMin,
     p90PrepTimeMin: primaryProfile.p90PrepTimeMin,
-    totalBreaches: kemang.totalBreaches + greenville.totalBreaches,
-    totalRedAlerts: kemang.totalRedAlerts + greenville.totalRedAlerts,
-    breachRatePct:
-      kemang.totalKptOrders + greenville.totalKptOrders > 0
-        ? Number(
-            (
-              ((kemang.totalBreaches + greenville.totalBreaches) /
-                (kemang.totalKptOrders + greenville.totalKptOrders)) *
-              100
-            ).toFixed(1)
-          )
-        : 0,
+    totalBreaches: primaryProfile.totalBreaches,
+    totalRedAlerts: primaryProfile.totalRedAlerts,
+    breachRatePct: primaryProfile.breachRatePct,
     worstDayHourLabel: primaryProfile.worstDayHourLabel,
     worstDayHourPrepMin: primaryProfile.worstDayHourPrepMin,
     heatmapCells: primaryProfile.heatmapCells,
     dayparts: primaryProfile.dayparts,
-    topBreachTickets: [...kemang.topBreachTickets, ...greenville.topBreachTickets]
-      .sort((a, b) => b.prep_time_minutes - a.prep_time_minutes)
-      .slice(0, 10),
+    topBreachTickets: primaryProfile.topBreachTickets,
   };
 }
 

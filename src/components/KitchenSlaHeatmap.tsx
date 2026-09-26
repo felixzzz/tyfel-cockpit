@@ -73,13 +73,21 @@ function SingleKitchenMatrix({
     cellMap.set(`${c.dow}-${c.hour}`, c);
   }
 
+  const isCombined = profile.branch === "Combined";
   const isKemang = profile.branch === "Kemang";
   const optimalCutoff = Number((profile.slaTargetMin * 0.8).toFixed(1));
+  const slaLabel = isCombined
+    ? "Kemang ≤12m · Greenville ≤15m"
+    : `SLA Target ≤${profile.slaTargetMin}m`;
 
   if (profile.totalOrders === 0) {
     return (
       <div className="rounded-xl p-6 bg-black/25 border border-white/[0.06] text-center text-xs font-mono text-zinc-500">
-        No orders recorded for <strong className="text-zinc-300">{profile.branch} Kitchen</strong> in the selected filter window.
+        No orders recorded for{" "}
+        <strong className="text-zinc-300">
+          {isCombined ? "Both Kitchens" : `${profile.branch} Kitchen`}
+        </strong>{" "}
+        in the selected filter window.
       </div>
     );
   }
@@ -87,7 +95,11 @@ function SingleKitchenMatrix({
   return (
     <div
       className={`rounded-2xl p-4 sm:p-5 bg-black/25 border space-y-5 ${
-        isKemang ? "border-purple-500/25" : "border-emerald-500/25"
+        isCombined
+          ? "border-white/[0.1]"
+          : isKemang
+          ? "border-purple-500/25"
+          : "border-emerald-500/25"
       }`}
     >
       {/* Kitchen Sub-Header */}
@@ -95,7 +107,9 @@ function SingleKitchenMatrix({
         <div className="flex items-center gap-3">
           <div
             className={`p-2 rounded-xl border ${
-              isKemang
+              isCombined
+                ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                : isKemang
                 ? "bg-purple-500/10 text-purple-400 border-purple-500/25"
                 : "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
             }`}
@@ -105,23 +119,28 @@ function SingleKitchenMatrix({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm sm:text-base font-bold text-white">
-                {profile.branch} Kitchen Line
+                {isCombined
+                  ? "Both Kitchens Combined (Kemang + Greenville)"
+                  : `${profile.branch} Kitchen Line`}
               </h3>
               <span
                 className={`text-[11px] font-mono px-2 py-0.5 rounded border font-semibold ${
-                  isKemang
+                  isCombined
+                    ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
+                    : isKemang
                     ? "bg-purple-950/60 text-purple-300 border-purple-800/50"
                     : "bg-emerald-950/60 text-emerald-300 border-emerald-800/50"
                 }`}
               >
-                SLA Target ≤{profile.slaTargetMin}m
+                {slaLabel}
               </span>
               <span className="text-xs text-zinc-400 font-mono">
                 {profile.kitchenType}
               </span>
             </div>
             <p className="text-xs text-zinc-400 mt-0.5 font-mono">
-              {profile.totalOrders.toLocaleString()} total orders · {profile.totalKptOrders.toLocaleString()} KPT-tracked delivery tickets
+              {profile.totalOrders.toLocaleString()} total orders ·{" "}
+              {profile.totalKptOrders.toLocaleString()} KPT-tracked delivery tickets
             </p>
           </div>
         </div>
@@ -134,8 +153,14 @@ function SingleKitchenMatrix({
             <strong className="text-amber-300">{profile.p90PrepTimeMin}m</strong>
           </div>
           <div className="px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.07]">
-            <span className="text-zinc-400">Breaches (&gt;{profile.slaTargetMin}m): </span>
-            <strong className={profile.totalBreaches > 0 ? "text-amber-300" : "text-emerald-300"}>
+            <span className="text-zinc-400">
+              Breaches ({isCombined ? "Branch SLA" : `>${profile.slaTargetMin}m`}):{" "}
+            </span>
+            <strong
+              className={
+                profile.totalBreaches > 0 ? "text-amber-300" : "text-emerald-300"
+              }
+            >
               {profile.totalBreaches} ({profile.breachRatePct}%)
             </strong>
           </div>
@@ -154,7 +179,7 @@ function SingleKitchenMatrix({
         </div>
       </div>
 
-      {/* 5-Daypart Throughput & SLA Comparison Cards for this Kitchen */}
+      {/* 5-Daypart Throughput & SLA Comparison Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
         {profile.dayparts.map((dp) => {
           const isRush = dp.daypart.includes("Rush");
@@ -221,11 +246,12 @@ function SingleKitchenMatrix({
         })}
       </div>
 
-      {/* Day x Hour Heatmap Grid for this Kitchen */}
+      {/* Day x Hour Heatmap Grid */}
       <div className="space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
           <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[11px] font-mono">
-            {profile.branch} Day × Hour Prep Matrix (SLA ≤{profile.slaTargetMin}m)
+            {isCombined ? "Combined Portfolio" : profile.branch} Day × Hour Prep Matrix (
+            {slaLabel})
           </span>
           <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-zinc-400">
             <span className="flex items-center gap-1.5">
@@ -238,7 +264,7 @@ function SingleKitchenMatrix({
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm bg-amber-950/80 border border-amber-700/60 inline-block" />
-              &gt;{profile.slaTargetMin}m SLA Breach
+              SLA Breach ({isCombined ? ">12m KMG / >15m GRV" : `>${profile.slaTargetMin}m`})
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm bg-rose-950/80 border border-rose-700/60 inline-block" />
@@ -285,7 +311,7 @@ function SingleKitchenMatrix({
                       key={hr}
                       title={
                         cell
-                          ? `${profile.branch} · ${d.label} ${String(hr).padStart(2, "0")}:00 — ${cell.orderCount} orders (${cell.kptSampleCount} with KPT) · Avg Prep: ${cell.avgPrepTimeMin}m (SLA ≤${profile.slaTargetMin}m) · Breaches: ${cell.slaBreaches} · Red Alerts: ${cell.redAlerts}`
+                          ? `${profile.branch} · ${d.label} ${String(hr).padStart(2, "0")}:00 — ${cell.orderCount} orders (${cell.kptSampleCount} with KPT) · Avg Prep: ${cell.avgPrepTimeMin}m · Breaches: ${cell.slaBreaches} · Red Alerts: ${cell.redAlerts}`
                           : `${profile.branch} · ${d.label} ${String(hr).padStart(2, "0")}:00 — 0 orders`
                       }
                       className={`h-11 rounded-lg border px-1 flex flex-col items-center justify-center font-mono transition-colors ${styleClass}`}
@@ -320,13 +346,15 @@ function SingleKitchenMatrix({
         </div>
       </div>
 
-      {/* Worst Breach Tickets for this Kitchen */}
+      {/* Worst Breach Tickets */}
       <div className="space-y-2.5 pt-2 border-t border-white/[0.07]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
             <h4 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
-              {profile.branch} Worst SLA Breach Tickets (&gt;{profile.slaTargetMin}m)
+              {isCombined
+                ? "Combined Worst SLA Breach Tickets (Kemang >12m · Greenville >15m)"
+                : `${profile.branch} Worst SLA Breach Tickets (>${profile.slaTargetMin}m)`}
             </h4>
           </div>
           <span className="text-[11px] font-mono text-zinc-400">
@@ -337,7 +365,10 @@ function SingleKitchenMatrix({
         {profile.topBreachTickets.length === 0 ? (
           <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-800/30 flex items-center justify-center gap-2 text-xs text-emerald-300 font-mono">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>Zero SLA breach tickets (&gt;{profile.slaTargetMin}m) in {profile.branch} Kitchen.</span>
+            <span>
+              Zero SLA breach tickets recorded in{" "}
+              {isCombined ? "Both Kitchens" : `${profile.branch} Kitchen`}.
+            </span>
           </div>
         ) : (
           <div className="overflow-x-auto border border-white/[0.08] rounded-xl">
@@ -346,8 +377,9 @@ function SingleKitchenMatrix({
                 <tr className="border-b border-white/[0.08] bg-white/[0.02] text-zinc-400 uppercase font-semibold tracking-wider text-[11px]">
                   <th className="py-2.5 px-3">Timestamp &amp; Ticket</th>
                   {showBrandColumn && <th className="py-2.5 px-3">Brand</th>}
+                  {isCombined && <th className="py-2.5 px-3">Kitchen Branch</th>}
                   <th className="py-2.5 px-3">Channel</th>
-                  <th className="py-2.5 px-3 text-right">Prep vs {profile.slaTargetMin}m SLA</th>
+                  <th className="py-2.5 px-3 text-right">Prep vs SLA</th>
                   <th className="py-2.5 px-3 text-right">Basket Size</th>
                   <th className="py-2.5 px-3">Basket SKU Composition</th>
                   <th className="py-2.5 px-3 text-right">Ticket GMV</th>
@@ -365,6 +397,19 @@ function SingleKitchenMatrix({
                     {showBrandColumn && (
                       <td className="py-2.5 px-3 font-semibold text-white">
                         {t.brand}
+                      </td>
+                    )}
+                    {isCombined && (
+                      <td className="py-2.5 px-3 font-mono text-xs">
+                        <span
+                          className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${
+                            t.branch === "Kemang" ? "bg-purple-400" : "bg-emerald-400"
+                          }`}
+                        />
+                        <span className="text-zinc-200">{t.branch}</span>
+                        <span className="text-zinc-500 text-[10px] ml-1">
+                          (≤{t.sla_target_min}m)
+                        </span>
                       </td>
                     )}
                     <td className="py-2.5 px-3 font-mono text-xs text-zinc-300">
@@ -417,26 +462,29 @@ function SingleKitchenMatrix({
 
 export function KitchenSlaHeatmap({
   diagnostic,
-  title = "Branch-Separated Kitchen SLA Heatmap & Bottleneck Inspector",
-  subtitle = "Isolated physical kitchen telemetry: Kemang Cloud Kitchen (≤12.0m SLA) vs Greenville Flagship Kitchen (≤15.0m SLA)",
+  title = "Kitchen Prep SLA Heatmap & Bottleneck Inspector",
+  subtitle = "Unified or branch-isolated physical kitchen telemetry: Kemang Cloud Kitchen (≤12.0m SLA) & Greenville Flagship Kitchen (≤15.0m SLA)",
   showBrandColumn = true,
 }: KitchenSlaHeatmapProps) {
-  const { kemang, greenville, activeBranchFilter } = diagnostic;
+  const { combined, kemang, greenville, activeBranchFilter } = diagnostic;
 
-  const defaultTab: "split" | "kemang" | "greenville" =
+  const defaultTab: "combined" | "kemang" | "greenville" =
     activeBranchFilter === "kemang"
       ? "kemang"
       : activeBranchFilter === "greenville"
       ? "greenville"
-      : kemang.totalOrders > 0 && greenville.totalOrders > 0
-      ? "split"
-      : kemang.totalOrders > 0
-      ? "kemang"
-      : "greenville";
+      : "combined";
 
-  const [selectedKitchen, setSelectedKitchen] = useState<"split" | "kemang" | "greenville">(
-    defaultTab
-  );
+  const [selectedKitchen, setSelectedKitchen] = useState<
+    "combined" | "kemang" | "greenville"
+  >(defaultTab);
+
+  const activeProfile =
+    selectedKitchen === "kemang"
+      ? kemang
+      : selectedKitchen === "greenville"
+      ? greenville
+      : combined;
 
   return (
     <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-6">
@@ -457,14 +505,14 @@ export function KitchenSlaHeatmap({
         <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-black/40 border border-white/[0.08] self-start lg:self-auto">
           <button
             type="button"
-            onClick={() => setSelectedKitchen("split")}
+            onClick={() => setSelectedKitchen("combined")}
             className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
-              selectedKitchen === "split"
+              selectedKitchen === "combined"
                 ? "bg-white/[0.12] text-white border border-white/[0.15]"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
-            Both Kitchens (Separated)
+            Both Kitchens (Combined)
           </button>
           <button
             type="button"
@@ -497,14 +545,16 @@ export function KitchenSlaHeatmap({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[kemang, greenville].map((k) => {
           const isK = k.branch === "Kemang";
+          const targetTab = isK ? "kemang" : "greenville";
           const isSelected =
-            selectedKitchen === "split" ||
-            selectedKitchen === k.branch.toLowerCase();
+            selectedKitchen === "combined" || selectedKitchen === targetTab;
           return (
             <div
               key={k.branch}
               onClick={() =>
-                setSelectedKitchen(k.branch.toLowerCase() as "kemang" | "greenville")
+                setSelectedKitchen(
+                  selectedKitchen === targetTab ? "combined" : targetTab
+                )
               }
               className={`rounded-xl p-4 border transition-colors cursor-pointer flex flex-col justify-between space-y-3 ${
                 isK
@@ -591,21 +641,11 @@ export function KitchenSlaHeatmap({
         })}
       </div>
 
-      {/* Separated Kitchen Matrices */}
-      <div className="space-y-6">
-        {(selectedKitchen === "split" || selectedKitchen === "kemang") && (
-          <SingleKitchenMatrix
-            profile={kemang}
-            showBrandColumn={showBrandColumn}
-          />
-        )}
-        {(selectedKitchen === "split" || selectedKitchen === "greenville") && (
-          <SingleKitchenMatrix
-            profile={greenville}
-            showBrandColumn={showBrandColumn}
-          />
-        )}
-      </div>
+      {/* Single Active Kitchen Matrix (Combined, Kemang, or Greenville) */}
+      <SingleKitchenMatrix
+        profile={activeProfile}
+        showBrandColumn={showBrandColumn}
+      />
     </div>
   );
 }

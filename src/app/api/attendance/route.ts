@@ -11,10 +11,8 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const periodKey = searchParams.get('period') || undefined;
-    const from = searchParams.get('from') || undefined;
-    const to = searchParams.get('to') || undefined;
 
-    const report = await getAttendanceCycleReport({ periodKey, from, to });
+    const report = await getAttendanceCycleReport({ periodKey });
     return NextResponse.json({ success: true, report });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -32,37 +30,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const parseOptionalNum = (val: unknown): number | null => {
+      if (val === null || val === undefined || val === '') return null;
+      const n = Number(val);
+      return Number.isNaN(n) ? null : n;
+    };
+
     await updateEmployeeAndPayrollAdjustment({
       employee_name: String(body.employee_name),
       period_key: String(body.period_key),
+      reset_period: Boolean(body.reset_period || body.type === 'reset_period'),
+      update_master_defaults: Boolean(body.update_master_defaults),
       full_name: body.full_name,
       role: body.role,
       join_date_label: body.join_date_label,
-      shift_start_time: body.shift_start_time,
-      basic_salary:
-        body.basic_salary !== undefined ? Number(body.basic_salary) : undefined,
-      daily_rate:
-        body.daily_rate !== undefined ? Number(body.daily_rate) : undefined,
-      late_penalty_rate:
-        body.late_penalty_rate !== undefined
-          ? Number(body.late_penalty_rate)
-          : undefined,
-      no_late_bonus:
-        body.no_late_bonus !== undefined
-          ? Number(body.no_late_bonus)
-          : undefined,
-      daily_count_override:
-        body.daily_count_override === null ||
-        body.daily_count_override === '' ||
-        body.daily_count_override === undefined
-          ? null
-          : Number(body.daily_count_override),
-      late_count_override:
-        body.late_count_override === null ||
-        body.late_count_override === '' ||
-        body.late_count_override === undefined
-          ? null
-          : Number(body.late_count_override),
+      shift_start_override:
+        body.shift_start_override !== undefined
+          ? String(body.shift_start_override)
+          : null,
+      basic_salary_override: parseOptionalNum(body.basic_salary_override),
+      daily_rate_override: parseOptionalNum(body.daily_rate_override),
+      late_penalty_override: parseOptionalNum(body.late_penalty_override),
+      no_late_bonus_override: parseOptionalNum(body.no_late_bonus_override),
+      daily_count_override: parseOptionalNum(body.daily_count_override),
+      late_count_override: parseOptionalNum(body.late_count_override),
+      bonus_qty_override: parseOptionalNum(body.bonus_qty_override),
       custom_desc: body.custom_desc ?? '',
       custom_qty: body.custom_qty !== undefined ? Number(body.custom_qty) : 0,
       custom_unit_value:

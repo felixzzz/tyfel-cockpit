@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { DuckDBInstance, DuckDBConnection } from '@duckdb/node-api';
 
@@ -451,7 +452,7 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
         packaging_delivery DOUBLE NOT NULL,
         target_food_cost_pct DOUBLE NOT NULL,
         is_hero_bom BOOLEAN DEFAULT FALSE,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP
       );
     `);
 
@@ -492,6 +493,7 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
         is_hero_bom = EXCLUDED.is_hero_bom,
         updated_at = EXCLUDED.updated_at;
     `);
+    await conn.run(`CHECKPOINT;`);
   } catch (err) {
     console.warn('[DuckDB Seed Notice] Could not write dim_recipes on init:', err);
   } finally {
@@ -507,7 +509,25 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
   if (dbInstance) return dbInstance;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
-      const instance = await DuckDBInstance.create(DB_PATH);
+      let instance: DuckDBInstance;
+      try {
+        instance = await DuckDBInstance.create(DB_PATH);
+      } catch (err) {
+        const msg = String(err);
+        const walPath = `${DB_PATH}.wal`;
+        if (msg.includes('replaying WAL file') && fs.existsSync(walPath)) {
+          console.warn('[DuckDB WAL Recovery] Removing unreplayable WAL file and re-initializing:', walPath);
+          try {
+            fs.unlinkSync(walPath);
+          } catch {
+            // ignore unlink errors
+          }
+          instance = await DuckDBInstance.create(DB_PATH);
+        } else {
+          dbInitPromise = null;
+          throw err;
+        }
+      }
       await initializeSchemaAndSeed(instance);
       const { initializeAttendanceSchemaAndSeed } = await import('./attendance');
       await initializeAttendanceSchemaAndSeed(instance);

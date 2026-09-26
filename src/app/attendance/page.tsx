@@ -23,11 +23,16 @@ import {
   Sun,
   Moon,
   Search,
+  ChevronLeft,
+  ChevronRight,
+  Lock,
+  RotateCcw,
 } from "lucide-react";
 import type {
   AttendanceCycleReport,
   EmployeePayslipSummary,
   AttendanceRecord,
+  PayrollCycleOption,
 } from "@/lib/attendance";
 
 function formatRp(amount: number): string {
@@ -60,8 +65,7 @@ export default function AttendancePayrollPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<string>(
     "2026-08-16_to_2026-09-15"
   );
-  const [customFrom, setCustomFrom] = useState<string>("2026-08-16");
-  const [customTo, setCustomTo] = useState<string>("2026-09-15");
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedEmpName, setSelectedEmpName] = useState<string>("Aji");
 
   // Payslip visual mode: 'light' matches the exact Tyfel Coffee spreadsheet screenshot
@@ -70,7 +74,7 @@ export default function AttendancePayrollPage() {
   const [savingSlip, setSavingSlip] = useState<boolean>(false);
   const [saveBanner, setSaveBanner] = useState<string | null>(null);
 
-  // Edit form state
+  // Per-period Edit Form State (saved per employee + period_key)
   const [editFullName, setEditFullName] = useState<string>("");
   const [editRole, setEditRole] = useState<string>("");
   const [editJoinDate, setEditJoinDate] = useState<string>("");
@@ -81,12 +85,15 @@ export default function AttendancePayrollPage() {
   const [editNoLateBonus, setEditNoLateBonus] = useState<number>(85000);
   const [editDailyOverride, setEditDailyOverride] = useState<string>("");
   const [editLateOverride, setEditLateOverride] = useState<string>("");
+  const [editBonusQtyOverride, setEditBonusQtyOverride] = useState<string>("");
   const [editCustomDesc, setEditCustomDesc] = useState<string>("");
   const [editCustomQty, setEditCustomQty] = useState<number>(0);
   const [editCustomUnit, setEditCustomUnit] = useState<number>(0);
   const [editKasbonQty, setEditKasbonQty] = useState<number>(0);
   const [editKasbonUnit, setEditKasbonUnit] = useState<number>(0);
   const [editNotes, setEditNotes] = useState<string>("");
+  const [alsoUpdateMasterDefaults, setAlsoUpdateMasterDefaults] =
+    useState<boolean>(false);
 
   // Daily log filter state
   const [logEmpFilter, setLogEmpFilter] = useState<string>("all");
@@ -100,24 +107,18 @@ export default function AttendancePayrollPage() {
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function fetchReport(opts?: {
-    period?: string;
-    from?: string;
-    to?: string;
-  }) {
+  async function fetchReport(periodKey?: string) {
     setLoading(true);
     try {
       const qs = new URLSearchParams();
-      if (opts?.period) qs.set("period", opts.period);
-      if (opts?.from) qs.set("from", opts.from);
-      if (opts?.to) qs.set("to", opts.to);
+      if (periodKey) qs.set("period", periodKey);
 
       const res = await fetch(`/api/attendance?${qs.toString()}`);
       const data = await res.json();
       if (data.success && data.report) {
         setReport(data.report);
-        setCustomFrom(data.report.start_date);
-        setCustomTo(data.report.end_date);
+        setSelectedPeriod(data.report.period_key);
+        setSelectedYear(data.report.year);
       }
     } catch (err) {
       console.error("Failed to fetch attendance report:", err);
@@ -127,7 +128,7 @@ export default function AttendancePayrollPage() {
   }
 
   useEffect(() => {
-    fetchReport({ period: selectedPeriod });
+    fetchReport(selectedPeriod);
   }, [selectedPeriod]);
 
   const activeSlip: EmployeePayslipSummary | undefined =
@@ -135,22 +136,27 @@ export default function AttendancePayrollPage() {
       (p) => p.employee.employee_name === selectedEmpName
     ) || report?.payslips[0];
 
-  // Sync edit form whenever activeSlip changes
+  // Sync edit form whenever activeSlip or period changes
   useEffect(() => {
     if (!activeSlip) return;
     setEditFullName(activeSlip.employee.full_name);
     setEditRole(activeSlip.employee.role);
     setEditJoinDate(activeSlip.employee.join_date_label);
-    setEditShiftCutoff(activeSlip.employee.shift_start_time);
-    setEditBasicSalary(activeSlip.employee.basic_salary);
-    setEditDailyRate(activeSlip.employee.daily_rate);
-    setEditLatePenalty(activeSlip.employee.late_penalty_rate);
-    setEditNoLateBonus(activeSlip.employee.no_late_bonus);
+    setEditShiftCutoff(activeSlip.effective_shift_start);
+    setEditBasicSalary(activeSlip.effective_basic_salary);
+    setEditDailyRate(activeSlip.effective_daily_rate);
+    setEditLatePenalty(activeSlip.effective_late_penalty_rate);
+    setEditNoLateBonus(activeSlip.effective_no_late_bonus);
     setEditDailyOverride(
       activeSlip.daily_is_overridden ? String(activeSlip.daily_qty) : ""
     );
     setEditLateOverride(
       activeSlip.late_is_overridden ? String(activeSlip.late_qty) : ""
+    );
+    setEditBonusQtyOverride(
+      activeSlip.bonus_qty_is_overridden
+        ? String(activeSlip.bonus_tidak_telat_qty)
+        : ""
     );
     setEditCustomDesc(activeSlip.custom_desc || "");
     setEditCustomQty(activeSlip.custom_qty || 0);
@@ -158,6 +164,7 @@ export default function AttendancePayrollPage() {
     setEditKasbonQty(activeSlip.kasbon_qty || 0);
     setEditKasbonUnit(activeSlip.kasbon_unit || 0);
     setEditNotes(activeSlip.notes || "");
+    setAlsoUpdateMasterDefaults(false);
   }, [activeSlip]);
 
   async function handleSavePayslip(e: React.FormEvent) {
@@ -172,18 +179,23 @@ export default function AttendancePayrollPage() {
         body: JSON.stringify({
           employee_name: activeSlip.employee.employee_name,
           period_key: report.period_key,
+          update_master_defaults: alsoUpdateMasterDefaults,
           full_name: editFullName,
           role: editRole,
           join_date_label: editJoinDate,
-          shift_start_time: editShiftCutoff,
-          basic_salary: Number(editBasicSalary),
-          daily_rate: Number(editDailyRate),
-          late_penalty_rate: Number(editLatePenalty),
-          no_late_bonus: Number(editNoLateBonus),
+          shift_start_override: editShiftCutoff,
+          basic_salary_override: Number(editBasicSalary),
+          daily_rate_override: Number(editDailyRate),
+          late_penalty_override: Number(editLatePenalty),
+          no_late_bonus_override: Number(editNoLateBonus),
           daily_count_override:
             editDailyOverride.trim() === "" ? null : Number(editDailyOverride),
           late_count_override:
             editLateOverride.trim() === "" ? null : Number(editLateOverride),
+          bonus_qty_override:
+            editBonusQtyOverride.trim() === ""
+              ? null
+              : Number(editBonusQtyOverride),
           custom_desc: editCustomDesc,
           custom_qty: Number(editCustomQty),
           custom_unit_value: Number(editCustomUnit),
@@ -197,12 +209,42 @@ export default function AttendancePayrollPage() {
         setReport(data.report);
         setIsEditingSlip(false);
         setSaveBanner(
-          `Saved payslip & rate configuration for ${editFullName} (${report.salary_code})`
+          `Saved override for ${editFullName} in period ${report.year}-${String(report.month).padStart(2, "0")} (${report.salary_code})`
         );
-        setTimeout(() => setSaveBanner(null), 4000);
+        setTimeout(() => setSaveBanner(null), 4500);
       }
     } catch (err) {
       console.error("Failed to save payslip:", err);
+    } finally {
+      setSavingSlip(false);
+    }
+  }
+
+  async function handleResetPeriodOverride() {
+    if (!activeSlip || !report) return;
+    setSavingSlip(true);
+    setSaveBanner(null);
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_name: activeSlip.employee.employee_name,
+          period_key: report.period_key,
+          reset_period: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.report) {
+        setReport(data.report);
+        setIsEditingSlip(false);
+        setSaveBanner(
+          `Reset period overrides for ${activeSlip.employee.full_name} in ${report.salary_code} back to automatic attendance values.`
+        );
+        setTimeout(() => setSaveBanner(null), 4500);
+      }
+    } catch (err) {
+      console.error("Failed to reset period override:", err);
     } finally {
       setSavingSlip(false);
     }
@@ -223,12 +265,12 @@ export default function AttendancePayrollPage() {
         body: formData,
       });
       const data = await res.json();
-      if (data.results?.[0]?.message) {
-        setUploadNotice(data.results[0].message);
+      if (data.summaries?.[0]?.message) {
+        setUploadNotice(data.summaries[0].message);
       } else {
         setUploadNotice(`Uploaded ${file.name} and refreshed attendance logs.`);
       }
-      await fetchReport({ period: selectedPeriod });
+      await fetchReport(selectedPeriod);
     } catch (err) {
       console.error("Upload error:", err);
     } finally {
@@ -240,7 +282,9 @@ export default function AttendancePayrollPage() {
   function handleExportPayrollCsv() {
     if (!report) return;
     const headers = [
-      "Period",
+      "Year",
+      "Month",
+      "Period Window",
       "Salary Code",
       "Employee ID",
       "Full Name",
@@ -263,13 +307,15 @@ export default function AttendancePayrollPage() {
       "Net Take-Home Pay",
     ];
     const rows = report.payslips.map((p) => [
+      report.year,
+      report.month,
       `${report.start_date} to ${report.end_date}`,
       report.salary_code,
       p.employee.employee_name,
       `"${p.employee.full_name}"`,
       `"${p.employee.role}"`,
       `"${p.employee.join_date_label}"`,
-      p.employee.shift_start_time,
+      p.effective_shift_start,
       p.raw_logs_count,
       p.daily_qty,
       p.daily_unit,
@@ -293,12 +339,34 @@ export default function AttendancePayrollPage() {
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `tyfel_payroll_${report.salary_code}_${report.start_date}_to_${report.end_date}.csv`
+      `tyfel_payroll_${report.year}_${String(report.month).padStart(2, "0")}_${report.salary_code}.csv`
     );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   }
+
+  // Chronological selectable cycles for Prev / Next navigation
+  const selectableCycles: PayrollCycleOption[] = (
+    report?.available_cycles || []
+  ).filter((c) => c.is_selectable);
+  const currentSelectableIdx = selectableCycles.findIndex(
+    (c) => c.period_key === report?.period_key
+  );
+  const prevCycle =
+    currentSelectableIdx > 0
+      ? selectableCycles[currentSelectableIdx - 1]
+      : null;
+  const nextCycle =
+    currentSelectableIdx >= 0 &&
+    currentSelectableIdx < selectableCycles.length - 1
+      ? selectableCycles[currentSelectableIdx + 1]
+      : null;
+
+  // Months for the currently selected Year tab (ordered 1..12)
+  const monthsForYear: PayrollCycleOption[] = (
+    report?.available_cycles || []
+  ).filter((c) => c.year === selectedYear);
 
   const filteredLogs: AttendanceRecord[] = (report?.recent_logs || []).filter(
     (log) => {
@@ -341,7 +409,7 @@ export default function AttendancePayrollPage() {
               Back to Executive Cockpit
             </Link>
             <span className="text-xs font-mono uppercase tracking-widest px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-              16–15 Payroll Cycle Engine
+              Payroll & Attendance
             </span>
           </div>
           <div className="flex items-center gap-3.5">
@@ -353,7 +421,7 @@ export default function AttendancePayrollPage() {
                 Tyfel Coffee · Employee Attendance & Payslip Cockpit
               </h1>
               <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
-                Automated 16th–15th monthly cutoff attendance audit, shift punctuality tracking, anomaly filtering & instant payslip generation
+                Monthly payroll periods (16th–15th), per-period employee overrides & automated attendance verification
               </p>
             </div>
           </div>
@@ -415,80 +483,160 @@ export default function AttendancePayrollPage() {
       )}
 
       {/* =========================================================================
-          16–15 Payroll Cycle Bar & Custom Date Filter
+          Payroll Period Selector: Ordered by Year & Month (Previous Completed Periods Only)
           ========================================================================= */}
-      <section className="glass-card rounded-2xl p-4 sm:p-5 border border-white/[0.08] bg-[#18191e]">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-zinc-400">
-              <Calendar className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Select 16th–15th Payroll Cutoff Period</span>
+      <section className="rounded-2xl p-4 sm:p-5 border border-white/[0.08] bg-[#18191e] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-zinc-300">
+              <Calendar className="w-4 h-4 text-emerald-400" />
+              <span className="font-semibold">Payroll Period (Year & Month)</span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {(report?.available_cycles || []).map((cyc) => {
-                const isSelected = report?.period_key === cyc.period_key;
-                return (
-                  <button
-                    key={cyc.period_key}
-                    type="button"
-                    onClick={() => setSelectedPeriod(cyc.period_key)}
-                    className={`px-3.5 py-2 rounded-xl text-left transition-all cursor-pointer border ${
-                      isSelected
-                        ? "bg-emerald-500/15 border-emerald-500/50 text-white shadow-sm"
-                        : "bg-white/[0.03] hover:bg-white/[0.06] border-white/[0.07] text-zinc-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold font-mono text-emerald-400">
-                        {cyc.salary_code}
-                      </span>
-                      <span className="text-xs font-semibold">
-                        {cyc.short_label}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-zinc-400 mt-0.5">
-                      {cyc.badge}
-                    </div>
-                  </button>
-                );
-              })}
+
+            {/* Year Selector Tabs (Ordered Ascending) */}
+            <div className="inline-flex items-center bg-black/40 p-1 rounded-xl border border-white/[0.08]">
+              {(report?.available_years || [2025, 2026]).map((yr) => (
+                <button
+                  key={yr}
+                  type="button"
+                  onClick={() => setSelectedYear(yr)}
+                  className={`px-3 py-1 rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer ${
+                    selectedYear === yr
+                      ? "bg-emerald-500 text-black"
+                      : "text-zinc-400 hover:text-white"
+                  }`}
+                >
+                  {yr}
+                </button>
+              ))}
             </div>
+
+            {report && (
+              <span className="text-xs font-mono text-zinc-400">
+                Active Period:{" "}
+                <strong className="text-white">{report.cycle_label}</strong> ·{" "}
+                <span className="text-emerald-400 font-semibold">
+                  {report.salary_code}
+                </span>
+              </span>
+            )}
           </div>
 
-          {/* Custom Date Range Override */}
-          <div className="flex flex-wrap items-end gap-2.5 pt-3 xl:pt-0 border-t xl:border-t-0 border-white/[0.06]">
-            <div>
-              <label className="block text-[10px] font-mono uppercase text-zinc-400 mb-1">
-                From Date
-              </label>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                className="bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs font-mono text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-mono uppercase text-zinc-400 mb-1">
-                To Date
-              </label>
-              <input
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-                className="bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs font-mono text-white"
-              />
-            </div>
+          {/* Prev / Next Completed Period Stepper */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() =>
-                fetchReport({ from: customFrom, to: customTo })
-              }
-              className="px-3.5 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-xs font-semibold text-white border border-white/[0.1] transition-colors cursor-pointer"
+              disabled={!prevCycle}
+              onClick={() => {
+                if (prevCycle) {
+                  setSelectedYear(prevCycle.year);
+                  setSelectedPeriod(prevCycle.period_key);
+                }
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 border border-white/[0.08] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
-              Apply Range
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Prev Month</span>
+            </button>
+            <button
+              type="button"
+              disabled={!nextCycle}
+              onClick={() => {
+                if (nextCycle) {
+                  setSelectedYear(nextCycle.year);
+                  setSelectedPeriod(nextCycle.period_key);
+                }
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 border border-white/[0.08] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              title={
+                !nextCycle
+                  ? "Only completed previous periods can be selected"
+                  : `Go to ${nextCycle.short_label}`
+              }
+            >
+              <span>Next Month</span>
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+
+        {/* Chronological 12-Month Grid (01 Jan -> 12 Dec) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-12 gap-2">
+          {monthsForYear.map((cyc) => {
+            const isSelected = report?.period_key === cyc.period_key;
+            const mm = String(cyc.month).padStart(2, "0");
+
+            return (
+              <button
+                key={cyc.period_key}
+                type="button"
+                disabled={!cyc.is_selectable}
+                onClick={() => {
+                  if (cyc.is_selectable) {
+                    setSelectedPeriod(cyc.period_key);
+                  }
+                }}
+                title={
+                  cyc.is_selectable
+                    ? `${cyc.label} (${cyc.salary_code})`
+                    : cyc.is_current_running
+                      ? `Current cycle in progress (${cyc.start_date} to ${cyc.end_date}) — only completed previous periods are selectable`
+                      : `Future period locked (${cyc.start_date} to ${cyc.end_date})`
+                }
+                className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between min-h-[72px] ${
+                  isSelected
+                    ? "bg-emerald-500/15 border-emerald-500/60 text-white shadow-sm cursor-pointer"
+                    : cyc.is_selectable
+                      ? "bg-white/[0.03] hover:bg-white/[0.07] border-white/[0.08] text-zinc-200 cursor-pointer"
+                      : "bg-black/25 border-white/[0.04] text-zinc-600 cursor-not-allowed opacity-55"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-xs font-mono font-bold">
+                    {mm} · {cyc.month_short}
+                  </span>
+                  {!cyc.is_selectable ? (
+                    <Lock className="w-3 h-3 text-zinc-600 shrink-0" />
+                  ) : cyc.log_count > 0 ? (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  ) : null}
+                </div>
+
+                <div className="mt-1.5 space-y-0.5">
+                  <div className="text-[10px] font-mono text-zinc-400 truncate">
+                    {cyc.start_date.slice(5)} → {cyc.end_date.slice(5)}
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-mono">
+                    {cyc.is_selectable ? (
+                      <span
+                        className={
+                          cyc.log_count > 0
+                            ? "text-emerald-400 font-semibold"
+                            : "text-zinc-500"
+                        }
+                      >
+                        {cyc.log_count > 0
+                          ? `${cyc.log_count} logs`
+                          : "0 logs"}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-600">
+                        {cyc.is_current_running ? "Running" : "Locked"}
+                      </span>
+                    )}
+                    {cyc.override_count > 0 && (
+                      <span
+                        className="px-1 rounded bg-amber-500/20 text-amber-300"
+                        title={`${cyc.override_count} saved employee override(s) in this period`}
+                      >
+                        {cyc.override_count} adj
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -497,7 +645,7 @@ export default function AttendancePayrollPage() {
           ========================================================================= */}
       {loading && !report && (
         <div className="rounded-2xl p-8 bg-[#18191e] border border-white/[0.08] text-center text-xs font-mono text-zinc-400 animate-pulse">
-          Loading 16–15 Payroll & Attendance Telemetry from DuckDB...
+          Loading Payroll & Attendance Telemetry from DuckDB...
         </div>
       )}
       {report && (
@@ -585,7 +733,7 @@ export default function AttendancePayrollPage() {
       )}
 
       {/* =========================================================================
-          Interactive Tyfel Coffee Payslip Studio (Left: Payslip Card | Right: Breakdown & Editor)
+          Interactive Tyfel Coffee Payslip Studio (Left: Payslip Card | Right: Breakdown & Per-Period Editor)
           ========================================================================= */}
       {report && activeSlip && (
         <section className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -616,6 +764,12 @@ export default function AttendancePayrollPage() {
                       <span className="text-[10px] opacity-75 font-mono">
                         ({p.daily_qty}d)
                       </span>
+                      {p.has_period_override && (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full bg-amber-300"
+                          title="Has saved override for this period"
+                        />
+                      )}
                     </button>
                   );
                 })}
@@ -652,7 +806,11 @@ export default function AttendancePayrollPage() {
                   }`}
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>{isEditingSlip ? "Close Editor" : "Edit Slip / Kasbon"}</span>
+                  <span>
+                    {isEditingSlip
+                      ? "Close Editor"
+                      : `Override (${report.salary_code})`}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -717,7 +875,7 @@ export default function AttendancePayrollPage() {
                       >
                         <span>Shift Cutoff:</span>
                         <span className="font-bold">
-                          {activeSlip.employee.shift_start_time} WIB
+                          {activeSlip.effective_shift_start} WIB
                         </span>
                       </div>
                       <div
@@ -727,7 +885,7 @@ export default function AttendancePayrollPage() {
                             : "bg-white/[0.03] text-zinc-400"
                         }`}
                       >
-                        <span>Period:</span>
+                        <span>Period ({report.year}-{String(report.month).padStart(2, "0")}):</span>
                         <span>
                           {report.start_date.slice(5)} → {report.end_date.slice(5)}
                         </span>
@@ -738,10 +896,17 @@ export default function AttendancePayrollPage() {
                   {/* Right Column: Salary_8 Table */}
                   <div className="md:col-span-8">
                     {/* Top Green Tab Header (Salary_8) */}
-                    <div className="inline-flex items-center gap-3 bg-[#2d6147] text-white px-4 py-1.5 rounded-t-xl text-xs font-semibold border-b border-white/20">
-                      <span>{report.salary_code}</span>
-                      <span className="opacity-75">▾</span>
-                      <FileSpreadsheet className="w-3.5 h-3.5 opacity-80" />
+                    <div className="flex items-center justify-between">
+                      <div className="inline-flex items-center gap-3 bg-[#2d6147] text-white px-4 py-1.5 rounded-t-xl text-xs font-semibold border-b border-white/20">
+                        <span>{report.salary_code}</span>
+                        <span className="opacity-75">▾</span>
+                        <FileSpreadsheet className="w-3.5 h-3.5 opacity-80" />
+                      </div>
+                      {activeSlip.has_period_override && (
+                        <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30">
+                          Saved Override · {report.salary_code}
+                        </span>
+                      )}
                     </div>
 
                     <div
@@ -799,7 +964,7 @@ export default function AttendancePayrollPage() {
                                 {activeSlip.daily_is_overridden && (
                                   <span
                                     className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-300"
-                                    title={`Raw attendance logs in period: ${activeSlip.raw_logs_count} (${activeSlip.full_shifts_count} full shifts, ${activeSlip.short_shifts_count} short shifts)`}
+                                    title={`Raw attendance logs in period: ${activeSlip.raw_logs_count}`}
                                   >
                                     adj ({activeSlip.raw_logs_count} logs)
                                   </span>
@@ -823,7 +988,7 @@ export default function AttendancePayrollPage() {
                               <div className="flex items-center justify-between gap-1">
                                 <span>Telat</span>
                                 <span className="text-[10px] font-mono opacity-60">
-                                  &gt;{activeSlip.employee.shift_start_time}
+                                  &gt;{activeSlip.effective_shift_start}
                                 </span>
                               </div>
                             </td>
@@ -859,7 +1024,7 @@ export default function AttendancePayrollPage() {
                             </td>
                           </tr>
 
-                          {/* Row 5: Custom / Extra Line (matches blank spacer row in screenshot) */}
+                          {/* Row 5: Custom / Extra Line */}
                           <tr>
                             <td className="py-2.5 px-3.5 font-medium border-r border-current/10 min-h-[36px]">
                               {activeSlip.custom_desc || "\u00A0"}
@@ -957,7 +1122,7 @@ export default function AttendancePayrollPage() {
                             : "bg-white/[0.04] text-zinc-400"
                         }`}
                       >
-                        Note: {activeSlip.notes}
+                        Note ({report.salary_code}): {activeSlip.notes}
                       </div>
                     )}
                   </div>
@@ -966,7 +1131,7 @@ export default function AttendancePayrollPage() {
             </div>
           </div>
 
-          {/* Right 5 Columns: Editor Form OR Late & Anomaly Audit Breakdown */}
+          {/* Right 5 Columns: Per-Period Editor Form OR Late & Anomaly Audit Breakdown */}
           <div className="xl:col-span-5 space-y-4">
             {isEditingSlip ? (
               <form
@@ -977,10 +1142,14 @@ export default function AttendancePayrollPage() {
                   <div>
                     <h3 className="text-sm font-bold text-white flex items-center gap-2">
                       <Sliders className="w-4 h-4 text-emerald-400" />
-                      Edit Payslip & Rates · {activeSlip.employee.employee_name}
+                      Period Override · {activeSlip.employee.full_name}
                     </h3>
-                    <p className="text-xs text-zinc-400">
-                      Changes persist in DuckDB for {report.salary_code} ({report.start_date} – {report.end_date})
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Saved strictly for{" "}
+                      <strong className="text-emerald-300 font-mono">
+                        {report.year}-{String(report.month).padStart(2, "0")} ({report.salary_code})
+                      </strong>{" "}
+                      ({report.start_date} – {report.end_date})
                     </p>
                   </div>
                   <button
@@ -992,6 +1161,7 @@ export default function AttendancePayrollPage() {
                   </button>
                 </div>
 
+                {/* Employee Bio */}
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <label className="block text-zinc-400 mb-1">Full Name</label>
@@ -1003,7 +1173,9 @@ export default function AttendancePayrollPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">Role / Division</label>
+                    <label className="block text-zinc-400 mb-1">
+                      Role / Division
+                    </label>
                     <input
                       type="text"
                       value={editRole}
@@ -1012,7 +1184,9 @@ export default function AttendancePayrollPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">Join Date Label</label>
+                    <label className="block text-zinc-400 mb-1">
+                      Join Date Label
+                    </label>
                     <input
                       type="text"
                       value={editJoinDate}
@@ -1022,7 +1196,7 @@ export default function AttendancePayrollPage() {
                   </div>
                   <div>
                     <label className="block text-zinc-400 mb-1">
-                      Shift Clock-In Cutoff (HH:MM)
+                      Period Shift Cutoff (HH:MM)
                     </label>
                     <input
                       type="time"
@@ -1033,21 +1207,24 @@ export default function AttendancePayrollPage() {
                   </div>
                 </div>
 
+                {/* Period Rate Overrides */}
                 <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-white/[0.06]">
                   <div>
                     <label className="block text-zinc-400 mb-1">
-                      Basic Salary (Rp)
+                      Basic Salary ({report.salary_code})
                     </label>
                     <input
                       type="number"
                       value={editBasicSalary}
-                      onChange={(e) => setEditBasicSalary(Number(e.target.value))}
+                      onChange={(e) =>
+                        setEditBasicSalary(Number(e.target.value))
+                      }
                       className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
                     />
                   </div>
                   <div>
                     <label className="block text-zinc-400 mb-1">
-                      Daily Rate (Rp / day)
+                      Daily Rate ({report.salary_code})
                     </label>
                     <input
                       type="number"
@@ -1058,34 +1235,37 @@ export default function AttendancePayrollPage() {
                   </div>
                   <div>
                     <label className="block text-zinc-400 mb-1">
-                      Telat Penalty (Rp / late)
+                      Telat Penalty ({report.salary_code})
                     </label>
                     <input
                       type="number"
                       value={editLatePenalty}
-                      onChange={(e) => setEditLatePenalty(Number(e.target.value))}
+                      onChange={(e) =>
+                        setEditLatePenalty(Number(e.target.value))
+                      }
                       className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
                     />
                   </div>
                   <div>
                     <label className="block text-zinc-400 mb-1">
-                      Bonus Tidak Telat (Rp)
+                      Bonus Tidak Telat ({report.salary_code})
                     </label>
                     <input
                       type="number"
                       value={editNoLateBonus}
-                      onChange={(e) => setEditNoLateBonus(Number(e.target.value))}
+                      onChange={(e) =>
+                        setEditNoLateBonus(Number(e.target.value))
+                      }
                       className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-white/[0.06]">
+                {/* Period Count Overrides */}
+                <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-white/[0.06]">
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-zinc-400">
-                        Paid Daily (#) Override
-                      </label>
+                      <label className="text-zinc-400">Daily (#)</label>
                       <button
                         type="button"
                         onClick={() => setEditDailyOverride("")}
@@ -1104,9 +1284,7 @@ export default function AttendancePayrollPage() {
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-zinc-400">
-                        Telat (#) Override
-                      </label>
+                      <label className="text-zinc-400">Telat (#)</label>
                       <button
                         type="button"
                         onClick={() => setEditLateOverride("")}
@@ -1123,8 +1301,28 @@ export default function AttendancePayrollPage() {
                       className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
                     />
                   </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-zinc-400">Bonus (#)</label>
+                      <button
+                        type="button"
+                        onClick={() => setEditBonusQtyOverride("")}
+                        className="text-[10px] text-emerald-400 hover:underline font-mono"
+                      >
+                        Auto
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Auto (0/1)"
+                      value={editBonusQtyOverride}
+                      onChange={(e) => setEditBonusQtyOverride(e.target.value)}
+                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                    />
+                  </div>
                 </div>
 
+                {/* Extra Line & Kasbon for this Period */}
                 <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-white/[0.06]">
                   <div>
                     <label className="block text-zinc-400 mb-1">
@@ -1154,7 +1352,9 @@ export default function AttendancePayrollPage() {
                     <input
                       type="number"
                       value={editCustomUnit}
-                      onChange={(e) => setEditCustomUnit(Number(e.target.value))}
+                      onChange={(e) =>
+                        setEditCustomUnit(Number(e.target.value))
+                      }
                       className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
                     />
                   </div>
@@ -1163,7 +1363,7 @@ export default function AttendancePayrollPage() {
                 <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-white/[0.06]">
                   <div>
                     <label className="block text-zinc-400 mb-1">
-                      Kasbon (#)
+                      Kasbon (#) for {report.salary_code}
                     </label>
                     <input
                       type="number"
@@ -1179,20 +1379,65 @@ export default function AttendancePayrollPage() {
                     <input
                       type="number"
                       value={editKasbonUnit}
-                      onChange={(e) => setEditKasbonUnit(Number(e.target.value))}
+                      onChange={(e) =>
+                        setEditKasbonUnit(Number(e.target.value))
+                      }
                       className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/[0.08]">
+                <div className="text-xs pt-2 border-t border-white/[0.06]">
+                  <label className="block text-zinc-400 mb-1">
+                    Period Notes ({report.salary_code})
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Optional note for this employee in this period..."
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-xs text-zinc-400 pt-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={alsoUpdateMasterDefaults}
+                    onChange={(e) =>
+                      setAlsoUpdateMasterDefaults(e.target.checked)
+                    }
+                    className="rounded border-white/20"
+                  />
+                  <span>
+                    Also update default base salary / daily rate for un-overridden periods
+                  </span>
+                </label>
+
+                <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
+                  {activeSlip.has_period_override ? (
+                    <button
+                      type="button"
+                      disabled={savingSlip}
+                      onClick={handleResetPeriodOverride}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset {report.salary_code} Override
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+
                   <button
                     type="submit"
                     disabled={savingSlip}
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    {savingSlip ? "Saving..." : "Save Payslip & Recalculate"}
+                    {savingSlip
+                      ? "Saving..."
+                      : `Save for ${report.salary_code}`}
                   </button>
                 </div>
               </form>
@@ -1206,11 +1451,12 @@ export default function AttendancePayrollPage() {
                       Attendance Verification · {activeSlip.employee.full_name}
                     </h3>
                     <p className="text-xs text-zinc-400 mt-0.5">
-                      Automated audit of {activeSlip.raw_logs_count} clock-in records ({report.start_date} to {report.end_date})
+                      {activeSlip.raw_logs_count} clock-in records in{" "}
+                      {report.start_date} – {report.end_date}
                     </p>
                   </div>
                   <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-white/[0.05] text-zinc-300 border border-white/[0.08]">
-                    Cutoff {activeSlip.employee.shift_start_time}
+                    Cutoff {activeSlip.effective_shift_start}
                   </span>
                 </div>
 
@@ -1233,7 +1479,7 @@ export default function AttendancePayrollPage() {
                       {activeSlip.late_qty}
                     </div>
                     <div className="text-[11px] text-zinc-400">
-                      Telat (&gt;{activeSlip.employee.shift_start_time})
+                      Telat (&gt;{activeSlip.effective_shift_start})
                     </div>
                   </div>
                   <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
@@ -1261,9 +1507,10 @@ export default function AttendancePayrollPage() {
                     <div className="p-3.5 rounded-xl bg-emerald-950/25 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
                       <Award className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>
-                        Zero late arrivals! Qualifies for{" "}
+                        Zero late arrivals in this period! Qualifies for{" "}
                         <strong>
-                          Bonus Tidak Telat ({formatRp(activeSlip.employee.no_late_bonus)})
+                          Bonus Tidak Telat (
+                          {formatRp(activeSlip.effective_no_late_bonus)})
                         </strong>
                         .
                       </span>
@@ -1333,7 +1580,7 @@ export default function AttendancePayrollPage() {
       )}
 
       {/* =========================================================================
-          Team Roster & Payroll Matrix (All Employees for Selected 16–15 Cycle)
+          Team Roster & Payroll Matrix (All Employees for Selected Period)
           ========================================================================= */}
       {report && (
         <section className="rounded-2xl bg-[#18191e] border border-white/[0.08] overflow-hidden">
@@ -1343,7 +1590,8 @@ export default function AttendancePayrollPage() {
                 Outlet Payroll & Attendance Matrix · {report.cycle_label}
               </h2>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Click any employee row to inspect or customize their Tyfel Coffee payslip above
+                Click any employee row to inspect or override their payslip for{" "}
+                {report.salary_code}
               </p>
             </div>
             <div className="text-xs font-mono text-zinc-400">
@@ -1389,9 +1637,9 @@ export default function AttendancePayrollPage() {
                       <td className="py-3.5 px-4">
                         <div className="font-semibold text-white flex items-center gap-2">
                           <span>{p.employee.full_name}</span>
-                          {isSelected && (
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
-                              Selected
+                          {p.has_period_override && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                              Override
                             </span>
                           )}
                         </div>
@@ -1403,7 +1651,7 @@ export default function AttendancePayrollPage() {
                       <td className="py-3.5 px-3">
                         <div className="text-zinc-200">{p.employee.role}</div>
                         <div className="text-[11px] font-mono text-zinc-400">
-                          In ≤ {p.employee.shift_start_time}
+                          In ≤ {p.effective_shift_start}
                         </div>
                       </td>
                       <td className="py-3.5 px-3 text-right font-mono text-zinc-300">
