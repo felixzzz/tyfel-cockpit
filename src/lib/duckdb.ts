@@ -490,7 +490,7 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
         packaging_delivery = EXCLUDED.packaging_delivery,
         target_food_cost_pct = EXCLUDED.target_food_cost_pct,
         is_hero_bom = EXCLUDED.is_hero_bom,
-        updated_at = CURRENT_TIMESTAMP;
+        updated_at = EXCLUDED.updated_at;
     `);
   } catch (err) {
     console.warn('[DuckDB Seed Notice] Could not write dim_recipes on init:', err);
@@ -509,6 +509,8 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
     dbInitPromise = (async () => {
       const instance = await DuckDBInstance.create(DB_PATH);
       await initializeSchemaAndSeed(instance);
+      const { initializeAttendanceSchemaAndSeed } = await import('./attendance');
+      await initializeAttendanceSchemaAndSeed(instance);
       dbInstance = instance;
       return instance;
     })();
