@@ -44,21 +44,21 @@ function formatRupiah(amount: number): string {
 
 function getBranchCellStyle(cell: SlaHeatmapCell | undefined, slaTargetMin: number): string {
   if (!cell || cell.orderCount === 0) {
-    return "bg-black/20 border-white/[0.04] text-zinc-600";
+    return "bg-[var(--bg-surface-2)]/60 border-[var(--border-subtle)] text-[var(--text-muted)]";
   }
   if (cell.kptSampleCount === 0) {
-    return "bg-white/[0.03] border-white/[0.07] text-zinc-400";
+    return "bg-[var(--bg-surface-2)] border-[var(--border-default)] text-[var(--text-secondary)]";
   }
   if (cell.redAlerts > 0 || cell.avgPrepTimeMin >= 20.0) {
-    return "bg-rose-950/75 border-rose-700/60 text-rose-200";
+    return "badge-rose";
   }
   if (cell.slaBreaches > 0 || cell.avgPrepTimeMin > slaTargetMin) {
-    return "bg-amber-950/70 border-amber-700/50 text-amber-200";
+    return "badge-amber";
   }
   if (cell.avgPrepTimeMin > slaTargetMin * 0.8) {
-    return "bg-blue-950/50 border-blue-800/40 text-blue-200";
+    return "badge-blue";
   }
-  return "bg-emerald-950/55 border-emerald-800/45 text-emerald-200";
+  return "badge-emerald";
 }
 
 function SingleKitchenMatrix({
@@ -82,9 +82,9 @@ function SingleKitchenMatrix({
 
   if (profile.totalOrders === 0) {
     return (
-      <div className="rounded-xl p-6 bg-black/25 border border-white/[0.06] text-center text-xs font-mono text-zinc-500">
+      <div className="rounded-xl p-6 surface-well text-center text-xs font-mono text-[var(--text-muted)]">
         No orders recorded for{" "}
-        <strong className="text-zinc-300">
+        <strong className="text-[var(--text-primary)]">
           {isCombined ? "Both Kitchens" : `${profile.branch} Kitchen`}
         </strong>{" "}
         in the selected filter window.
@@ -93,52 +93,44 @@ function SingleKitchenMatrix({
   }
 
   return (
-    <div
-      className={`rounded-2xl p-4 sm:p-5 bg-black/25 border space-y-5 ${
-        isCombined
-          ? "border-white/[0.1]"
-          : isKemang
-          ? "border-purple-500/25"
-          : "border-emerald-500/25"
-      }`}
-    >
+    <div className="rounded-2xl p-4 sm:p-5 surface-well space-y-5">
       {/* Kitchen Sub-Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/[0.07] pb-3.5">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[var(--border-default)] pb-3.5">
         <div className="flex items-center gap-3">
           <div
-            className={`p-2 rounded-xl border ${
+            className={`p-2 rounded-xl ${
               isCombined
-                ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                ? "badge-amber"
                 : isKemang
-                ? "bg-purple-500/10 text-purple-400 border-purple-500/25"
-                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                ? "badge-purple"
+                : "badge-emerald"
             }`}
           >
             <Building2 className="w-4 h-4" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm sm:text-base font-bold text-white">
+              <h3 className="text-sm sm:text-base font-bold text-[var(--text-primary)]">
                 {isCombined
                   ? "Both Kitchens Combined (Kemang + Greenville)"
                   : `${profile.branch} Kitchen Line`}
               </h3>
               <span
-                className={`text-[11px] font-mono px-2 py-0.5 rounded border font-semibold ${
+                className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold ${
                   isCombined
-                    ? "bg-amber-950/60 text-amber-300 border-amber-800/50"
+                    ? "badge-amber"
                     : isKemang
-                    ? "bg-purple-950/60 text-purple-300 border-purple-800/50"
-                    : "bg-emerald-950/60 text-emerald-300 border-emerald-800/50"
+                    ? "badge-purple"
+                    : "badge-emerald"
                 }`}
               >
                 {slaLabel}
               </span>
-              <span className="text-xs text-zinc-400 font-mono">
+              <span className="text-xs text-[var(--text-muted)] font-mono">
                 {profile.kitchenType}
               </span>
             </div>
-            <p className="text-xs text-zinc-400 mt-0.5 font-mono">
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5 font-mono">
               {profile.totalOrders.toLocaleString()} total orders ·{" "}
               {profile.totalKptOrders.toLocaleString()} KPT-tracked delivery tickets
             </p>
@@ -146,32 +138,34 @@ function SingleKitchenMatrix({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
-          <div className="px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.07]">
-            <span className="text-zinc-400">Mean / P90: </span>
-            <strong className="text-white">{profile.avgPrepTimeMin}m</strong>
-            <span className="text-zinc-500"> / </span>
-            <strong className="text-amber-300">{profile.p90PrepTimeMin}m</strong>
+          <div className="px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)]">
+            <span className="text-[var(--text-secondary)]">Mean / P90: </span>
+            <strong className="text-[var(--text-primary)]">{profile.avgPrepTimeMin}m</strong>
+            <span className="text-[var(--text-muted)]"> / </span>
+            <strong className="text-amber-600 dark:text-amber-400">{profile.p90PrepTimeMin}m</strong>
           </div>
-          <div className="px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/[0.07]">
-            <span className="text-zinc-400">
+          <div className="px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)]">
+            <span className="text-[var(--text-secondary)]">
               Breaches ({isCombined ? "Branch SLA" : `>${profile.slaTargetMin}m`}):{" "}
             </span>
             <strong
               className={
-                profile.totalBreaches > 0 ? "text-amber-300" : "text-emerald-300"
+                profile.totalBreaches > 0
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-emerald-600 dark:text-emerald-400"
               }
             >
               {profile.totalBreaches} ({profile.breachRatePct}%)
             </strong>
           </div>
-          <div className="px-2.5 py-1 rounded-lg bg-rose-950/40 border border-rose-800/40">
-            <span className="text-rose-300">Red (&gt;20m): </span>
-            <strong className="text-rose-200">{profile.totalRedAlerts}</strong>
+          <div className="px-2.5 py-1 rounded-lg badge-rose">
+            <span>Red (&gt;20m): </span>
+            <strong>{profile.totalRedAlerts}</strong>
           </div>
           {profile.worstDayHourPrepMin > 0 && (
-            <div className="px-2.5 py-1 rounded-lg bg-amber-950/40 border border-amber-800/40">
-              <span className="text-amber-300">Peak Bottleneck: </span>
-              <strong className="text-white">
+            <div className="px-2.5 py-1 rounded-lg badge-amber">
+              <span>Peak Bottleneck: </span>
+              <strong>
                 {profile.worstDayHourLabel} ({profile.worstDayHourPrepMin}m)
               </strong>
             </div>
@@ -186,45 +180,45 @@ function SingleKitchenMatrix({
           return (
             <div
               key={dp.daypart}
-              className={`rounded-xl p-3 border flex flex-col justify-between space-y-2 ${
+              className={`rounded-xl p-3 bg-[var(--bg-surface)] border flex flex-col justify-between space-y-2 ${
                 isRush
-                  ? "bg-white/[0.03] border-amber-500/25"
-                  : "bg-black/30 border-white/[0.06]"
+                  ? "border-amber-500/40"
+                  : "border-[var(--border-default)]"
               }`}
             >
               <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-semibold text-white">{dp.daypart}</span>
+                <span className="text-xs font-semibold text-[var(--text-primary)]">{dp.daypart}</span>
                 {isRush && (
-                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded badge-amber font-semibold">
                     RUSH
                   </span>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2 font-mono text-xs pt-1 border-t border-white/[0.05]">
+              <div className="grid grid-cols-2 gap-2 font-mono text-xs pt-1 border-t border-[var(--border-subtle)]">
                 <div>
-                  <span className="text-[10px] text-zinc-500 block uppercase">Avg Prep</span>
+                  <span className="text-[10px] text-[var(--text-muted)] block uppercase">Avg Prep</span>
                   <span
                     className={`font-bold text-sm tabular-nums ${
                       dp.avgPrepTimeMin > profile.slaTargetMin
-                        ? "text-amber-300"
+                        ? "text-amber-600 dark:text-amber-400"
                         : dp.avgPrepTimeMin > 0
-                        ? "text-emerald-300"
-                        : "text-zinc-500"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-[var(--text-muted)]"
                     }`}
                   >
                     {dp.avgPrepTimeMin > 0 ? `${dp.avgPrepTimeMin}m` : "—"}
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-zinc-500 block uppercase">Breach Rate</span>
+                  <span className="text-[10px] text-[var(--text-muted)] block uppercase">Breach Rate</span>
                   <span
                     className={`font-bold text-sm tabular-nums ${
                       dp.breachRatePct >= 15
-                        ? "text-rose-400"
+                        ? "text-rose-600 dark:text-rose-400"
                         : dp.breachRatePct > 0
-                        ? "text-amber-300"
-                        : "text-zinc-400"
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-[var(--text-secondary)]"
                     }`}
                   >
                     {dp.breachRatePct}%
@@ -232,11 +226,11 @@ function SingleKitchenMatrix({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 pt-1 border-t border-white/[0.04]">
+              <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-secondary)] pt-1 border-t border-[var(--border-subtle)]">
                 <span>{dp.orderCount.toLocaleString()} orders</span>
                 <span>
                   {dp.slaBreaches} breach ·{" "}
-                  <strong className={dp.redAlerts > 0 ? "text-rose-400" : "text-zinc-500"}>
+                  <strong className={dp.redAlerts > 0 ? "text-rose-600 dark:text-rose-400" : "text-[var(--text-muted)]"}>
                     {dp.redAlerts} red
                   </strong>
                 </span>
@@ -247,27 +241,27 @@ function SingleKitchenMatrix({
       </div>
 
       {/* Day x Hour Heatmap Grid */}
-      <div className="space-y-2">
+      <div className="space-y-2.5 bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-default)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-          <span className="font-semibold text-zinc-300 uppercase tracking-wider text-[11px] font-mono">
+          <span className="font-semibold text-[var(--text-primary)] uppercase tracking-wider text-[11px] font-mono">
             {isCombined ? "Combined Portfolio" : profile.branch} Day × Hour Prep Matrix (
             {slaLabel})
           </span>
-          <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-zinc-400">
+          <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-[var(--text-secondary)]">
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-950/80 border border-emerald-700/60 inline-block" />
+              <span className="w-2.5 h-2.5 rounded-xs badge-emerald inline-block" />
               ≤{optimalCutoff}m Optimal
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-blue-950/80 border border-blue-700/60 inline-block" />
+              <span className="w-2.5 h-2.5 rounded-xs badge-blue inline-block" />
               {optimalCutoff}–{profile.slaTargetMin}m Within SLA
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-amber-950/80 border border-amber-700/60 inline-block" />
+              <span className="w-2.5 h-2.5 rounded-xs badge-amber inline-block" />
               SLA Breach ({isCombined ? ">12m KMG / >15m GRV" : `>${profile.slaTargetMin}m`})
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm bg-rose-950/80 border border-rose-700/60 inline-block" />
+              <span className="w-2.5 h-2.5 rounded-xs badge-rose inline-block" />
               ≥20m Red Alert
             </span>
           </div>
@@ -275,15 +269,15 @@ function SingleKitchenMatrix({
 
         <div className="overflow-x-auto pb-1">
           <div className="min-w-[820px] space-y-1.5">
-            <div className="grid grid-cols-[56px_repeat(16,minmax(0,1fr))] gap-1 text-[10px] font-mono text-zinc-400 text-center">
-              <div className="text-left pl-1 font-semibold text-zinc-500">DAY</div>
+            <div className="grid grid-cols-[56px_repeat(16,minmax(0,1fr))] gap-1 text-[10px] font-mono text-[var(--text-secondary)] text-center">
+              <div className="text-left pl-1 font-semibold text-[var(--text-muted)]">DAY</div>
               {DISPLAY_HOURS.map((hr) => {
                 const isRushHr = (hr >= 11 && hr <= 13) || (hr >= 18 && hr <= 20);
                 return (
                   <div
                     key={hr}
                     className={`py-1 rounded ${
-                      isRushHr ? "bg-amber-500/10 text-amber-300 font-semibold" : ""
+                      isRushHr ? "badge-amber font-semibold" : ""
                     }`}
                   >
                     {String(hr).padStart(2, "0")}h
@@ -297,7 +291,7 @@ function SingleKitchenMatrix({
                 key={d.dow}
                 className="grid grid-cols-[56px_repeat(16,minmax(0,1fr))] gap-1 items-center"
               >
-                <div className="text-xs font-mono font-semibold text-zinc-300 pl-1">
+                <div className="text-xs font-mono font-semibold text-[var(--text-primary)] pl-1">
                   {d.label}
                 </div>
                 {DISPLAY_HOURS.map((hr) => {
@@ -321,16 +315,16 @@ function SingleKitchenMatrix({
                           <span className="text-[11px] font-bold leading-none tabular-nums">
                             {cell.avgPrepTimeMin}m
                           </span>
-                          <span className="text-[9px] opacity-75 leading-none mt-1 tabular-nums">
+                          <span className="text-[9px] opacity-80 leading-none mt-1 tabular-nums">
                             {cell.orderCount}o{cell.slaBreaches > 0 ? `·${cell.slaBreaches}!` : ""}
                           </span>
                         </>
                       ) : hasOrdersOnly ? (
                         <>
-                          <span className="text-[10px] font-medium leading-none text-zinc-300">
+                          <span className="text-[10px] font-semibold leading-none">
                             POS
                           </span>
-                          <span className="text-[9px] text-zinc-500 leading-none mt-1">
+                          <span className="text-[9px] opacity-75 leading-none mt-1">
                             {cell.orderCount}o
                           </span>
                         </>
@@ -347,34 +341,34 @@ function SingleKitchenMatrix({
       </div>
 
       {/* Worst Breach Tickets */}
-      <div className="space-y-2.5 pt-2 border-t border-white/[0.07]">
+      <div className="space-y-2.5 pt-2 border-t border-[var(--border-default)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-            <h4 className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+            <h4 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider font-mono">
               {isCombined
                 ? "Combined Worst SLA Breach Tickets (Kemang >12m · Greenville >15m)"
                 : `${profile.branch} Worst SLA Breach Tickets (>${profile.slaTargetMin}m)`}
             </h4>
           </div>
-          <span className="text-[11px] font-mono text-zinc-400">
-            Joined with <code className="text-zinc-300">fact_order_items</code> basket composition
+          <span className="text-[11px] font-mono text-[var(--text-muted)]">
+            Basket composition & prep overage audit
           </span>
         </div>
 
         {profile.topBreachTickets.length === 0 ? (
-          <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-800/30 flex items-center justify-center gap-2 text-xs text-emerald-300 font-mono">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <div className="p-4 rounded-xl badge-emerald flex items-center justify-center gap-2 text-xs font-mono">
+            <CheckCircle2 className="w-4 h-4" />
             <span>
               Zero SLA breach tickets recorded in{" "}
               {isCombined ? "Both Kitchens" : `${profile.branch} Kitchen`}.
             </span>
           </div>
         ) : (
-          <div className="overflow-x-auto border border-white/[0.08] rounded-xl">
+          <div className="overflow-x-auto border border-[var(--border-default)] rounded-xl bg-[var(--bg-surface)]">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-white/[0.08] bg-white/[0.02] text-zinc-400 uppercase font-semibold tracking-wider text-[11px]">
+                <tr className="border-b border-[var(--border-default)] bg-[var(--bg-surface-2)] text-[var(--text-secondary)] uppercase font-semibold tracking-wider text-[11px]">
                   <th className="py-2.5 px-3">Timestamp &amp; Ticket</th>
                   {showBrandColumn && <th className="py-2.5 px-3">Brand</th>}
                   {isCombined && <th className="py-2.5 px-3">Kitchen Branch</th>}
@@ -385,17 +379,17 @@ function SingleKitchenMatrix({
                   <th className="py-2.5 px-3 text-right">Ticket GMV</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.04]">
+              <tbody className="divide-y divide-[var(--border-subtle)]">
                 {profile.topBreachTickets.map((t, idx) => (
-                  <tr key={t.order_id + "-" + idx} className="hover:bg-white/[0.03] transition-colors">
+                  <tr key={t.order_id + "-" + idx} className="hover:bg-[var(--bg-surface-2)]/60 transition-colors">
                     <td className="py-2.5 px-3 font-mono">
-                      <div className="text-white font-semibold">{t.created_at_formatted}</div>
-                      <div className="text-[11px] text-zinc-500 truncate max-w-[130px]" title={t.order_id}>
+                      <div className="text-[var(--text-primary)] font-semibold">{t.created_at_formatted}</div>
+                      <div className="text-[11px] text-[var(--text-muted)] truncate max-w-[130px]" title={t.order_id}>
                         #{t.order_id}
                       </div>
                     </td>
                     {showBrandColumn && (
-                      <td className="py-2.5 px-3 font-semibold text-white">
+                      <td className="py-2.5 px-3 font-semibold text-[var(--text-primary)]">
                         {t.brand}
                       </td>
                     )}
@@ -403,50 +397,52 @@ function SingleKitchenMatrix({
                       <td className="py-2.5 px-3 font-mono text-xs">
                         <span
                           className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${
-                            t.branch === "Kemang" ? "bg-purple-400" : "bg-emerald-400"
+                            t.branch === "Kemang" ? "bg-purple-500" : "bg-emerald-500"
                           }`}
                         />
-                        <span className="text-zinc-200">{t.branch}</span>
-                        <span className="text-zinc-500 text-[10px] ml-1">
+                        <span className="text-[var(--text-primary)]">{t.branch}</span>
+                        <span className="text-[var(--text-muted)] text-[10px] ml-1">
                           (≤{t.sla_target_min}m)
                         </span>
                       </td>
                     )}
-                    <td className="py-2.5 px-3 font-mono text-xs text-zinc-300">
+                    <td className="py-2.5 px-3 font-mono text-xs text-[var(--text-secondary)]">
                       {t.provider}
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono tabular-nums">
                       <div className="flex items-center justify-end gap-1.5">
                         <span
                           className={`font-bold text-sm ${
-                            t.is_red_alert ? "text-rose-400" : "text-amber-300"
+                            t.is_red_alert
+                              ? "text-rose-600 dark:text-rose-400"
+                              : "text-amber-600 dark:text-amber-400"
                           }`}
                         >
                           {t.prep_time_minutes}m
                         </span>
                         {t.is_red_alert && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-950/80 text-rose-300 border border-rose-700/60">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold badge-rose">
                             <Flame className="w-2.5 h-2.5" />
                             RED
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-zinc-500">
+                      <div className="text-[11px] text-[var(--text-muted)]">
                         +{t.overage_minutes}m over {t.sla_target_min}m
                       </div>
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono tabular-nums">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-zinc-200">
-                        <Layers className="w-3 h-3 text-blue-400" />
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded badge-neutral text-[var(--text-primary)]">
+                        <Layers className="w-3 h-3 text-[var(--accent-primary)]" />
                         {t.total_units > 0 ? `${t.total_units}u (${t.distinct_skus} SKU)` : "—"}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-zinc-300 max-w-md">
+                    <td className="py-2.5 px-3 text-[var(--text-secondary)] max-w-md">
                       <div className="line-clamp-2 text-xs font-mono leading-relaxed" title={t.basket_summary}>
                         {t.basket_summary}
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-emerald-400 font-semibold tabular-nums">
+                    <td className="py-2.5 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400 font-semibold tabular-nums">
                       {formatRupiah(t.gross_amount)}
                     </td>
                   </tr>
@@ -489,53 +485,53 @@ export function KitchenSlaHeatmap({
   return (
     <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-6">
       {/* Top Header & Kitchen Line Selector */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[var(--border-default)] pb-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <Clock className="w-4 h-4 text-amber-400" />
-            <h2 className="text-base font-semibold text-white tracking-tight">{title}</h2>
-            <span className="text-xs font-mono px-2 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40">
+            <Clock className="w-4 h-4 text-amber-500" />
+            <h2 className="text-base font-semibold text-[var(--text-primary)] tracking-tight">{title}</h2>
+            <span className="text-xs font-mono px-2 py-0.5 rounded badge-amber font-semibold">
               Kemang ≤12m · Greenville ≤15m
             </span>
           </div>
-          <p className="text-xs text-zinc-400 mt-1">{subtitle}</p>
+          <p className="text-xs text-[var(--text-secondary)] mt-1">{subtitle}</p>
         </div>
 
         {/* Interactive Kitchen Line Switcher */}
-        <div className="inline-flex items-center gap-1.5 p-1 rounded-xl bg-black/40 border border-white/[0.08] self-start lg:self-auto">
+        <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)] self-start lg:self-auto">
           <button
             type="button"
             onClick={() => setSelectedKitchen("combined")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
               selectedKitchen === "combined"
-                ? "bg-white/[0.12] text-white border border-white/[0.15]"
-                : "text-zinc-400 hover:text-zinc-200"
+                ? "bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-default)] shadow-2xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            Both Kitchens (Combined)
+            Both Kitchens
           </button>
           <button
             type="button"
             onClick={() => setSelectedKitchen("kemang")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
               selectedKitchen === "kemang"
-                ? "bg-purple-950/80 text-purple-200 border border-purple-700/60"
-                : "text-zinc-400 hover:text-purple-300"
+                ? "badge-purple shadow-2xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
             Kemang (≤12m)
           </button>
           <button
             type="button"
             onClick={() => setSelectedKitchen("greenville")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
               selectedKitchen === "greenville"
-                ? "bg-emerald-950/80 text-emerald-200 border border-emerald-700/60"
-                : "text-zinc-400 hover:text-emerald-300"
+                ? "badge-emerald shadow-2xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             Greenville (≤15m)
           </button>
         </div>
@@ -556,80 +552,78 @@ export function KitchenSlaHeatmap({
                   selectedKitchen === targetTab ? "combined" : targetTab
                 )
               }
-              className={`rounded-xl p-4 border transition-colors cursor-pointer flex flex-col justify-between space-y-3 ${
-                isK
-                  ? isSelected
-                    ? "bg-purple-950/15 border-purple-500/30 hover:border-purple-400/50"
-                    : "bg-black/20 border-white/[0.05] opacity-60 hover:opacity-100"
-                  : isSelected
-                  ? "bg-emerald-950/15 border-emerald-500/30 hover:border-emerald-400/50"
-                  : "bg-black/20 border-white/[0.05] opacity-60 hover:opacity-100"
+              className={`rounded-xl p-4 border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                isSelected
+                  ? "bg-[var(--bg-surface-2)] border-[var(--border-strong)] shadow-2xs"
+                  : "bg-[var(--bg-surface-2)]/50 border-[var(--border-subtle)] opacity-65 hover:opacity-100"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <span
                     className={`w-2.5 h-2.5 rounded-full ${
-                      isK ? "bg-purple-400" : "bg-emerald-400"
+                      isK ? "bg-purple-500" : "bg-emerald-500"
                     }`}
                   />
-                  <span className="text-sm font-bold text-white">
+                  <span className="text-sm font-bold text-[var(--text-primary)]">
                     {k.branch} Kitchen
                   </span>
-                  <span className="text-xs font-mono text-zinc-400">
+                  <span className="text-xs font-mono text-[var(--text-muted)]">
                     ({k.kitchenType})
                   </span>
                 </div>
                 <span
-                  className={`text-xs font-mono px-2 py-0.5 rounded border font-semibold ${
-                    isK
-                      ? "bg-purple-950/70 text-purple-300 border-purple-800/50"
-                      : "bg-emerald-950/70 text-emerald-300 border-emerald-800/50"
+                  className={`text-xs font-mono px-2 py-0.5 rounded font-semibold ${
+                    isK ? "badge-purple" : "badge-emerald"
                   }`}
                 >
                   Target ≤{k.slaTargetMin}m
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2 text-xs font-mono pt-2 border-t border-white/[0.06]">
+              <div className="grid grid-cols-4 gap-2 text-xs font-mono pt-2 border-t border-[var(--border-subtle)]">
                 <div>
-                  <span className="text-[10px] text-zinc-500 block uppercase">Mean / P90</span>
-                  <span className="text-white font-bold tabular-nums">
+                  <span className="text-[10px] text-[var(--text-muted)] block uppercase">Mean / P90</span>
+                  <span className="text-[var(--text-primary)] font-bold tabular-nums">
                     {k.avgPrepTimeMin > 0 ? `${k.avgPrepTimeMin}m` : "—"}
                   </span>
-                  <span className="text-zinc-500 text-[11px]">
+                  <span className="text-[var(--text-muted)] text-[11px]">
                     {" "}/ {k.p90PrepTimeMin > 0 ? `${k.p90PrepTimeMin}m` : "—"}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-zinc-500 block uppercase">
+                  <span className="text-[10px] text-[var(--text-muted)] block uppercase">
                     Breaches (&gt;{k.slaTargetMin}m)
                   </span>
                   <span
                     className={`font-bold tabular-nums ${
-                      k.totalBreaches > 0 ? "text-amber-300" : "text-emerald-400"
+                      k.totalBreaches > 0
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-emerald-600 dark:text-emerald-400"
                     }`}
                   >
                     {k.totalBreaches} ({k.breachRatePct}%)
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-zinc-500 block uppercase">
+                  <span className="text-[10px] text-[var(--text-muted)] block uppercase">
                     Red Alerts (&gt;20m)
                   </span>
                   <span
                     className={`font-bold tabular-nums ${
-                      k.totalRedAlerts > 0 ? "text-rose-400" : "text-zinc-400"
+                      k.totalRedAlerts > 0
+                        ? "text-rose-600 dark:text-rose-400"
+                        : "text-[var(--text-secondary)]"
                     }`}
                   >
                     {k.totalRedAlerts}
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] text-zinc-500 block uppercase">
+                  <span className="text-[10px] text-[var(--text-muted)] block uppercase">
                     Worst Window
                   </span>
-                  <span className="text-zinc-200 font-semibold truncate block">
+                  <span className="text-[var(--text-primary)] font-semibold truncate block">
                     {k.worstDayHourPrepMin > 0
                       ? `${k.worstDayHourLabel} (${k.worstDayHourPrepMin}m)`
                       : "—"}

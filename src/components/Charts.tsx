@@ -29,7 +29,7 @@ function formatRupiah(amount: number): string {
   }).format(amount);
 }
 
-// Bespoke Glassmorphic Tooltip Container
+// Theme-Aware Tactile Tooltip Container
 function GlassTooltip({
   title,
   items,
@@ -40,35 +40,35 @@ function GlassTooltip({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="bg-[#0b0b10]/95 backdrop-blur-xl border border-white/[0.1] rounded-xl p-3.5 shadow-2xl min-w-[200px] text-xs space-y-2 pointer-events-none">
+    <div className="bg-[var(--bg-surface)]/95 backdrop-blur-xl border border-[var(--border-strong)] rounded-xl p-3.5 shadow-xl min-w-[210px] text-xs space-y-2 pointer-events-none">
       {title && (
-        <div className="font-semibold text-white/95 pb-1.5 border-b border-white/[0.08] flex items-center justify-between">
+        <div className="font-semibold text-[var(--text-primary)] pb-1.5 border-b border-[var(--border-default)] flex items-center justify-between gap-2">
           {title}
         </div>
       )}
       <div className="space-y-1.5">
         {items.map((item, i) => (
           <div key={i} className="flex items-center justify-between gap-3 text-[11px]">
-            <span className="text-zinc-400 flex items-center gap-1.5">
+            <span className="text-[var(--text-secondary)] flex items-center gap-1.5">
               {item.color && (
                 <span
-                  className="w-2 h-2 rounded-full inline-block shrink-0 shadow-sm"
+                  className="w-2 h-2 rounded-full inline-block shrink-0"
                   style={{ backgroundColor: item.color }}
                 />
               )}
               {item.label}
             </span>
-            <span className="font-mono font-medium text-white tabular-nums">
+            <span className="font-mono font-semibold text-[var(--text-primary)] tabular-nums">
               {item.value}
               {item.badge && (
-                <span className="ml-1 text-[10px] text-zinc-400 font-normal">({item.badge})</span>
+                <span className="ml-1 text-[10px] text-[var(--text-muted)] font-normal">({item.badge})</span>
               )}
             </span>
           </div>
         ))}
       </div>
       {footer && (
-        <div className="pt-1.5 border-t border-white/[0.06] text-[10px] text-zinc-400">
+        <div className="pt-1.5 border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)]">
           {footer}
         </div>
       )}
@@ -118,57 +118,57 @@ export function BrandRevenueChart({ data }: BrandChartProps) {
         <BarChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 8 }} barGap={6}>
           <defs>
             <linearGradient id="gmvBarGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.95} />
-              <stop offset="100%" stopColor="#0284c7" stopOpacity={0.7} />
+              <stop offset="0%" stopColor="#0284c7" stopOpacity={0.92} />
+              <stop offset="100%" stopColor="#0369a1" stopOpacity={0.72} />
             </linearGradient>
             <linearGradient id="netBarGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#34d399" stopOpacity={0.95} />
-              <stop offset="100%" stopColor="#059669" stopOpacity={0.7} />
+              <stop offset="0%" stopColor="#10b981" stopOpacity={0.95} />
+              <stop offset="100%" stopColor="#059669" stopOpacity={0.75} />
             </linearGradient>
             <linearGradient id="promoBarGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#fb7185" stopOpacity={0.95} />
-              <stop offset="100%" stopColor="#e11d48" stopOpacity={0.7} />
+              <stop offset="0%" stopColor="#e11d48" stopOpacity={0.9} />
+              <stop offset="100%" stopColor="#be123c" stopOpacity={0.7} />
             </linearGradient>
           </defs>
 
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.04)" vertical={false} />
-          
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+
           <XAxis
             dataKey="name"
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
             dy={6}
           />
           <YAxis
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
             tickFormatter={(val) => `Rp${val}k`}
             dx={-4}
           />
 
           <Tooltip
-            cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
+            cursor={{ fill: 'var(--chart-cursor)' }}
             content={({ active, payload }) => {
               if (!active || !payload || !payload.length) return null;
               const dataPoint = payload[0].payload;
               return (
                 <GlassTooltip
                   title={
-                    <span className="text-zinc-200">
+                    <span className="text-[var(--text-primary)]">
                       {dataPoint.fullName}
-                      <span className="ml-2 font-mono text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                      <span className="ml-2 font-mono text-[10px] badge-emerald px-2 py-0.5 rounded">
                         {dataPoint.netRate}% Realized
                       </span>
                     </span>
                   }
                   items={[
-                    { label: 'Gross GMV', value: formatRupiah(dataPoint.rawGmv), color: '#38bdf8' },
-                    { label: 'Net Settlement', value: formatRupiah(dataPoint.rawNet), color: '#34d399' },
-                    { label: 'Merchant Promo Burn', value: formatRupiah(dataPoint.rawPromo), color: '#fb7185' },
+                    { label: 'Gross GMV', value: formatRupiah(dataPoint.rawGmv), color: '#0284c7' },
+                    { label: 'Net Settlement', value: formatRupiah(dataPoint.rawNet), color: '#10b981' },
+                    { label: 'Merchant Promo Burn', value: formatRupiah(dataPoint.rawPromo), color: '#e11d48' },
                   ]}
                   footer={<span>Unit economics across consolidated branches</span>}
                 />
@@ -180,12 +180,12 @@ export function BrandRevenueChart({ data }: BrandChartProps) {
             verticalAlign="top"
             align="right"
             wrapperStyle={{ paddingBottom: '16px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-            formatter={(val) => <span className="text-zinc-300 font-medium ml-1 mr-3">{val}</span>}
+            formatter={(val) => <span className="text-[var(--text-secondary)] font-semibold ml-1 mr-3">{val}</span>}
           />
 
-          <Bar isAnimationActive={false} dataKey="GMV" fill="url(#gmvBarGrad)" radius={[4, 4, 0, 0]} maxBarSize={32} />
-          <Bar isAnimationActive={false} dataKey="Net Payout" fill="url(#netBarGrad)" radius={[4, 4, 0, 0]} maxBarSize={32} />
-          <Bar isAnimationActive={false} dataKey="Promo Burn" fill="url(#promoBarGrad)" radius={[4, 4, 0, 0]} maxBarSize={32} />
+          <Bar isAnimationActive={false} dataKey="GMV" fill="url(#gmvBarGrad)" radius={[5, 5, 0, 0]} maxBarSize={32} />
+          <Bar isAnimationActive={false} dataKey="Net Payout" fill="url(#netBarGrad)" radius={[5, 5, 0, 0]} maxBarSize={32} />
+          <Bar isAnimationActive={false} dataKey="Promo Burn" fill="url(#promoBarGrad)" radius={[5, 5, 0, 0]} maxBarSize={32} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -196,9 +196,7 @@ export function BrandRevenueChart({ data }: BrandChartProps) {
    2. Channel Distribution (GrabFood vs GoFood vs POS)
    ========================================================================= */
 
-// getChannelColor imported from @/lib/brandTheme
-
-const FALLBACK_PALETTE = ['#10b981', '#f43f5e', '#8b5cf6', '#38bdf8', '#fbbf24'];
+const FALLBACK_PALETTE = ['#10b981', '#e11d48', '#7c3aed', '#0284c7', '#d97706'];
 
 interface ChannelChartProps {
   data: {
@@ -222,7 +220,7 @@ export function ChannelPieChart({ data }: ChannelChartProps) {
   }));
 
   return (
-    <div className="w-full h-72 flex items-center justify-center relative">
+    <div className="w-full h-64 flex items-center justify-center relative">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -230,11 +228,11 @@ export function ChannelPieChart({ data }: ChannelChartProps) {
             data={chartData}
             cx="50%"
             cy="50%"
-            innerRadius={65}
-            outerRadius={95}
-            paddingAngle={5}
+            innerRadius={62}
+            outerRadius={90}
+            paddingAngle={4}
             dataKey="value"
-            stroke="rgba(8, 8, 10, 0.8)"
+            stroke="var(--bg-surface)"
             strokeWidth={3}
           >
             {chartData.map((entry, index) => (
@@ -272,8 +270,8 @@ export function ChannelPieChart({ data }: ChannelChartProps) {
 
       {/* Donut Center Summary Badge */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <span className="text-xs uppercase font-mono tracking-wider text-zinc-400">Total GMV</span>
-        <span className="text-base sm:text-lg font-mono font-bold text-white mt-1 tabular-nums">
+        <span className="text-[10px] uppercase font-mono tracking-wider text-[var(--text-muted)]">Total GMV</span>
+        <span className="text-base sm:text-lg font-mono font-bold text-[var(--text-primary)] mt-0.5 tabular-nums">
           {totalGmv >= 1_000_000 ? `Rp${(totalGmv / 1_000_000).toFixed(1)}M` : formatRupiah(totalGmv)}
         </span>
       </div>
@@ -308,32 +306,32 @@ export function HourlyOrderChart({ data }: HourlyChartProps) {
         <AreaChart data={chartData} margin={{ top: 12, right: 16, left: -10, bottom: 8 }}>
           <defs>
             <linearGradient id="ordersAreaGlow" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.4} />
-              <stop offset="70%" stopColor="#8b5cf6" stopOpacity={0.06} />
-              <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.0} />
+              <stop offset="0%" stopColor="#c85a32" stopOpacity={0.35} />
+              <stop offset="75%" stopColor="#c85a32" stopOpacity={0.06} />
+              <stop offset="100%" stopColor="#c85a32" stopOpacity={0.0} />
             </linearGradient>
             <linearGradient id="orderStroke" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#a78bfa" />
-              <stop offset="50%" stopColor="#8b5cf6" />
-              <stop offset="100%" stopColor="#c084fc" />
+              <stop offset="0%" stopColor="#d97706" />
+              <stop offset="50%" stopColor="#c85a32" />
+              <stop offset="100%" stopColor="#1b6b4a" />
             </linearGradient>
           </defs>
 
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.04)" vertical={false} />
-          
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+
           <XAxis
             dataKey="hour"
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
             dy={6}
           />
           <YAxis
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
           />
 
           <Tooltip
@@ -346,15 +344,15 @@ export function HourlyOrderChart({ data }: HourlyChartProps) {
                     <span className="flex items-center justify-between w-full">
                       <span>Window: {d.hour}</span>
                       {d.isRush && (
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded badge-amber">
                           Peak Rush
                         </span>
                       )}
                     </span>
                   }
                   items={[
-                    { label: 'Completed Orders', value: `${d.Orders} tickets`, color: '#a78bfa' },
-                    { label: 'Hour Gross GMV', value: formatRupiah(d.rawGmv), color: '#38bdf8' },
+                    { label: 'Completed Orders', value: `${d.Orders} tickets`, color: '#c85a32' },
+                    { label: 'Hour Gross GMV', value: formatRupiah(d.rawGmv), color: '#1b6b4a' },
                   ]}
                   footer={<span>Kitchen batch prep priority window</span>}
                 />
@@ -370,8 +368,8 @@ export function HourlyOrderChart({ data }: HourlyChartProps) {
             strokeWidth={2.5}
             fillOpacity={1}
             fill="url(#ordersAreaGlow)"
-            dot={{ r: 2.5, fill: '#8b5cf6', stroke: '#08080a', strokeWidth: 1.5 }}
-            activeDot={{ r: 5, fill: '#c084fc', stroke: '#ffffff', strokeWidth: 2 }}
+            dot={{ r: 2.5, fill: '#c85a32', stroke: 'var(--bg-surface)', strokeWidth: 1.5 }}
+            activeDot={{ r: 5, fill: '#c85a32', stroke: 'var(--bg-surface)', strokeWidth: 2 }}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -392,19 +390,15 @@ export function SkuParetoBarChart({ items, limit = 10 }: SkuParetoChartProps) {
   const displayItems = items.slice(0, limit);
   const chartData = displayItems.map((it) => {
     const shortTitle = it.item_name.length > 24 ? `${it.item_name.substring(0, 22)}...` : it.item_name;
-    
-    // Japandi executive palette:
-    // Tier A Hero: Radiant Jade/Emerald (#10b981)
-    // Tier B Stabilizer: Electric Cyan/Blue (#38bdf8)
-    // Tier C Watchlist: Caramel Amber (#f59e0b)
+
     let fill = '#10b981';
     let gradientId = 'skuHeroGrad';
     if (it.tier === 'Tier B') {
-      fill = '#38bdf8';
+      fill = '#0284c7';
       gradientId = 'skuSecondaryGrad';
     }
     if (it.tier === 'Tier C') {
-      fill = '#f59e0b';
+      fill = '#d97706';
       gradientId = 'skuWatchlistGrad';
     }
 
@@ -432,40 +426,40 @@ export function SkuParetoBarChart({ items, limit = 10 }: SkuParetoChartProps) {
         >
           <defs>
             <linearGradient id="skuHeroGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#059669" stopOpacity={0.8} />
+              <stop offset="0%" stopColor="#059669" stopOpacity={0.85} />
               <stop offset="100%" stopColor="#10b981" stopOpacity={1} />
             </linearGradient>
             <linearGradient id="skuSecondaryGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#0284c7" stopOpacity={0.8} />
-              <stop offset="100%" stopColor="#38bdf8" stopOpacity={1} />
+              <stop offset="0%" stopColor="#0369a1" stopOpacity={0.85} />
+              <stop offset="100%" stopColor="#0284c7" stopOpacity={1} />
             </linearGradient>
             <linearGradient id="skuWatchlistGrad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor="#d97706" stopOpacity={0.8} />
-              <stop offset="100%" stopColor="#f59e0b" stopOpacity={1} />
+              <stop offset="0%" stopColor="#b45309" stopOpacity={0.85} />
+              <stop offset="100%" stopColor="#d97706" stopOpacity={1} />
             </linearGradient>
           </defs>
 
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.04)" horizontal={false} />
-          
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" horizontal={false} />
+
           <XAxis
             type="number"
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
           />
           <YAxis
             type="category"
             dataKey="name"
-            stroke="rgba(255, 255, 255, 0.75)"
+            stroke="var(--text-primary)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
             width={140}
           />
 
           <Tooltip
-            cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
+            cursor={{ fill: 'var(--chart-cursor)' }}
             content={({ active, payload }) => {
               if (!active || !payload || !payload.length) return null;
               const d = payload[0].payload;
@@ -477,8 +471,8 @@ export function SkuParetoBarChart({ items, limit = 10 }: SkuParetoChartProps) {
                       <span
                         className="text-[10px] font-mono px-2 py-0.5 rounded ml-2 shrink-0 border"
                         style={{
-                          backgroundColor: `${d.fill}15`,
-                          borderColor: `${d.fill}40`,
+                          backgroundColor: `${d.fill}20`,
+                          borderColor: `${d.fill}50`,
                           color: d.fill,
                         }}
                       >
@@ -532,40 +526,40 @@ export function BrandHourlyKptChart({ data }: BrandHourlyKptChartProps) {
         <ComposedChart data={chartData} margin={{ top: 12, right: 16, left: -6, bottom: 8 }}>
           <defs>
             <linearGradient id="kptBarGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.85} />
-              <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.4} />
+              <stop offset="0%" stopColor="#1b6b4a" stopOpacity={0.85} />
+              <stop offset="100%" stopColor="#1b6b4a" stopOpacity={0.35} />
             </linearGradient>
           </defs>
 
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.04)" vertical={false} />
-          
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+
           <XAxis
             dataKey="hour"
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
             dy={6}
           />
           <YAxis
             yAxisId="left"
-            stroke="rgba(255, 255, 255, 0.35)"
+            stroke="var(--chart-axis)"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(255, 255, 255, 0.08)' }}
+            axisLine={{ stroke: 'var(--border-default)' }}
           />
           <YAxis
             yAxisId="right"
             orientation="right"
-            stroke="#f59e0b"
+            stroke="#d97706"
             fontSize={12}
             tickLine={false}
-            axisLine={{ stroke: 'rgba(245, 158, 11, 0.2)' }}
+            axisLine={{ stroke: 'rgba(217, 119, 6, 0.25)' }}
             unit="m"
           />
 
           <Tooltip
-            cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }}
+            cursor={{ fill: 'var(--chart-cursor)' }}
             content={({ active, payload }) => {
               if (!active || !payload || !payload.length) return null;
               const d = payload[0].payload;
@@ -575,15 +569,15 @@ export function BrandHourlyKptChart({ data }: BrandHourlyKptChartProps) {
                     <span className="flex items-center justify-between w-full">
                       <span>Window: {d.hour} ({d.window})</span>
                       {d.breaches > 0 && (
-                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded badge-rose">
                           {d.breaches} SLA Breaches
                         </span>
                       )}
                     </span>
                   }
                   items={[
-                    { label: 'Ticket Volume', value: `${d.Orders} orders`, color: '#8b5cf6' },
-                    { label: 'Avg Kitchen Prep', value: `${d['Avg Prep Time (min)']} min`, color: '#f59e0b' },
+                    { label: 'Ticket Volume', value: `${d.Orders} orders`, color: '#1b6b4a' },
+                    { label: 'Avg Kitchen Prep', value: `${d['Avg Prep Time (min)']} min`, color: '#d97706' },
                   ]}
                   footer={<span>Benchmark: ≤12m Kemang / ≤15m Greenville</span>}
                 />
@@ -595,7 +589,7 @@ export function BrandHourlyKptChart({ data }: BrandHourlyKptChartProps) {
             verticalAlign="top"
             align="right"
             wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-            formatter={(val) => <span className="text-zinc-300 font-medium ml-1 mr-3">{val}</span>}
+            formatter={(val) => <span className="text-[var(--text-secondary)] font-semibold ml-1 mr-3">{val}</span>}
           />
 
           <Bar
@@ -611,10 +605,10 @@ export function BrandHourlyKptChart({ data }: BrandHourlyKptChartProps) {
             yAxisId="right"
             type="monotone"
             dataKey="Avg Prep Time (min)"
-            stroke="#f59e0b"
+            stroke="#d97706"
             strokeWidth={2.5}
-            dot={{ r: 3, fill: '#f59e0b', stroke: '#08080a', strokeWidth: 1.5 }}
-            activeDot={{ r: 5, fill: '#fbbf24', stroke: '#ffffff', strokeWidth: 2 }}
+            dot={{ r: 3, fill: '#d97706', stroke: 'var(--bg-surface)', strokeWidth: 1.5 }}
+            activeDot={{ r: 5, fill: '#f59e0b', stroke: 'var(--bg-surface)', strokeWidth: 2 }}
           />
         </ComposedChart>
       </ResponsiveContainer>
@@ -644,7 +638,7 @@ export function BrandChannelChart({ data }: BrandChannelChartProps) {
   }));
 
   return (
-    <div className="w-full h-72 flex items-center justify-center relative">
+    <div className="w-full h-64 flex items-center justify-center relative">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -653,10 +647,10 @@ export function BrandChannelChart({ data }: BrandChannelChartProps) {
             cx="50%"
             cy="50%"
             innerRadius={60}
-            outerRadius={90}
-            paddingAngle={5}
+            outerRadius={88}
+            paddingAngle={4}
             dataKey="value"
-            stroke="rgba(8, 8, 10, 0.8)"
+            stroke="var(--bg-surface)"
             strokeWidth={3}
           >
             {chartData.map((entry, index) => (
@@ -683,7 +677,7 @@ export function BrandChannelChart({ data }: BrandChannelChartProps) {
                     { label: 'Gross GMV', value: formatRupiah(d.value) },
                     { label: 'Volume Share', value: `${d.share}%` },
                     { label: 'Orders Completed', value: `${d.orders} tickets` },
-                    { label: 'Promo Burn Rate', value: `${d.burnRate}%`, color: '#fb7185' },
+                    { label: 'Promo Burn Rate', value: `${d.burnRate}%`, color: '#e11d48' },
                   ]}
                   footer={<span>Net Settlement: {formatRupiah(d.net)}</span>}
                 />
@@ -695,8 +689,8 @@ export function BrandChannelChart({ data }: BrandChannelChartProps) {
 
       {/* Donut Center Summary Badge */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <span className="text-xs uppercase font-mono tracking-wider text-zinc-400">Channel Mix</span>
-        <span className="text-base sm:text-lg font-mono font-bold text-white mt-1 tabular-nums">
+        <span className="text-[10px] uppercase font-mono tracking-wider text-[var(--text-muted)]">Channel Mix</span>
+        <span className="text-base sm:text-lg font-mono font-bold text-[var(--text-primary)] mt-0.5 tabular-nums">
           {totalGmv >= 1_000_000 ? `Rp${(totalGmv / 1_000_000).toFixed(1)}M` : formatRupiah(totalGmv)}
         </span>
       </div>

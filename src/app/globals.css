@@ -1,68 +1,212 @@
 @import "tailwindcss";
 
-:root {
-  --background: #121316;
-  --foreground: #f4f4f6;
-  --card-bg: #18191e;
-  --card-border: rgba(255, 255, 255, 0.08);
+/* =========================================================================
+   CULINARY ATELIER & TACTILE COMMAND — DESIGN TOKEN SYSTEM
+   Light Mode: Warm Roastery Parchment & Botanical Forest
+   Dark Mode:  Deep Espresso Obsidian & Luminous Sage
+   ========================================================================= */
+
+:root,
+html[data-theme="light"] {
+  --bg-canvas: #f4f0e6;
+  --bg-sidebar: #ebe5d8;
+  --bg-surface: #fffdf9;
+  --bg-surface-2: #f1ece1;
+  --bg-surface-3: #e5dfd1;
+  --border-subtle: rgba(28, 24, 20, 0.07);
+  --border-default: rgba(28, 24, 20, 0.12);
+  --border-strong: rgba(28, 24, 20, 0.22);
+
+  --text-primary: #181512;
+  --text-secondary: #524b42;
+  --text-muted: #7d7569;
+
+  --accent-primary: #1b6b4a;
+  --accent-primary-hover: #145339;
+  --accent-primary-soft: rgba(27, 107, 74, 0.1);
+  --accent-secondary: #c85a32;
+
+  --status-emerald-bg: rgba(16, 185, 129, 0.12);
+  --status-emerald-border: rgba(5, 150, 105, 0.28);
+  --status-emerald-text: #065f46;
+
+  --status-amber-bg: rgba(245, 158, 11, 0.14);
+  --status-amber-border: rgba(217, 119, 6, 0.3);
+  --status-amber-text: #92400e;
+
+  --status-rose-bg: rgba(244, 63, 94, 0.12);
+  --status-rose-border: rgba(225, 29, 72, 0.28);
+  --status-rose-text: #9f1239;
+
+  --status-blue-bg: rgba(14, 165, 233, 0.12);
+  --status-blue-border: rgba(2, 132, 199, 0.28);
+  --status-blue-text: #075985;
+
+  --status-purple-bg: rgba(139, 92, 246, 0.12);
+  --status-purple-border: rgba(124, 58, 237, 0.28);
+  --status-purple-text: #5b21b6;
+
+  --chart-grid: rgba(28, 24, 20, 0.08);
+  --chart-axis: #6e665b;
+  --chart-cursor: rgba(28, 24, 20, 0.04);
+  --card-shadow: 0 2px 8px -2px rgba(28, 24, 20, 0.07), 0 1px 2px 0 rgba(28, 24, 20, 0.04);
+}
+
+html[data-theme="dark"] {
+  --bg-canvas: #0f0e0c;
+  --bg-sidebar: #141210;
+  --bg-surface: #191714;
+  --bg-surface-2: #13110f;
+  --bg-surface-3: #24201c;
+  --border-subtle: rgba(245, 238, 226, 0.07);
+  --border-default: rgba(245, 238, 226, 0.12);
+  --border-strong: rgba(245, 238, 226, 0.22);
+
+  --text-primary: #f6f3ec;
+  --text-secondary: #a8a095;
+  --text-muted: #756e64;
+
+  --accent-primary: #10b981;
+  --accent-primary-hover: #059669;
+  --accent-primary-soft: rgba(16, 185, 129, 0.14);
+  --accent-secondary: #f97316;
+
+  --status-emerald-bg: rgba(6, 78, 59, 0.45);
+  --status-emerald-border: rgba(16, 185, 129, 0.35);
+  --status-emerald-text: #6ee7b7;
+
+  --status-amber-bg: rgba(120, 53, 15, 0.45);
+  --status-amber-border: rgba(245, 158, 11, 0.35);
+  --status-amber-text: #fcd34d;
+
+  --status-rose-bg: rgba(136, 19, 55, 0.45);
+  --status-rose-border: rgba(244, 63, 94, 0.35);
+  --status-rose-text: #fda4af;
+
+  --status-blue-bg: rgba(12, 74, 110, 0.45);
+  --status-blue-border: rgba(56, 189, 248, 0.35);
+  --status-blue-text: #7dd3fc;
+
+  --status-purple-bg: rgba(76, 29, 149, 0.45);
+  --status-purple-border: rgba(167, 139, 250, 0.35);
+  --status-purple-text: #c4b5fd;
+
+  --chart-grid: rgba(245, 238, 226, 0.06);
+  --chart-axis: #948c80;
+  --chart-cursor: rgba(245, 238, 226, 0.04);
+  --card-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.45), inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: var(--font-geist-mono), 'SF Mono', Menlo, Consolas, monospace;
+  --color-background: var(--bg-canvas);
+  --color-foreground: var(--text-primary);
+  --font-display: var(--font-space-grotesk), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: var(--font-jakarta-sans), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "SF Mono", Menlo, Consolas, monospace;
 }
 
 body {
-  background-color: #121316;
-  color: #f4f4f6;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
   font-family: var(--font-sans);
   overflow-x: hidden;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Warm Japandi & Architectural Executive Panel */
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.022em;
+}
+
+/* Primary Atelier Card Panel */
 .cockpit-panel {
   position: relative;
-  background: #18191e;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--card-shadow);
   border-radius: 1rem;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .cockpit-panel:hover {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--border-strong);
 }
 
-/* Refined, Architectural Top Accent Bars (Replacing Cheesy Neon Glowing Shadows) */
+/* Recessed Telemetry Well */
+.surface-well {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+}
+
+/* Semantic Status Badges */
+.badge-emerald {
+  background-color: var(--status-emerald-bg);
+  border: 1px solid var(--status-emerald-border);
+  color: var(--status-emerald-text);
+}
+
+.badge-amber {
+  background-color: var(--status-amber-bg);
+  border: 1px solid var(--status-amber-border);
+  color: var(--status-amber-text);
+}
+
+.badge-rose {
+  background-color: var(--status-rose-bg);
+  border: 1px solid var(--status-rose-border);
+  color: var(--status-rose-text);
+}
+
+.badge-blue {
+  background-color: var(--status-blue-bg);
+  border: 1px solid var(--status-blue-border);
+  color: var(--status-blue-text);
+}
+
+.badge-purple {
+  background-color: var(--status-purple-bg);
+  border: 1px solid var(--status-purple-border);
+  color: var(--status-purple-text);
+}
+
+.badge-neutral {
+  background-color: var(--bg-surface-2);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+}
+
+/* Architectural Top Accent Bars */
 .accent-bar-blue {
-  border-top: 2.5px solid #38bdf8 !important;
+  border-top: 3px solid #0284c7 !important;
 }
 
 .accent-bar-emerald {
-  border-top: 2.5px solid #10b981 !important;
+  border-top: 3px solid #10b981 !important;
 }
 
 .accent-bar-rose {
-  border-top: 2.5px solid #f43f5e !important;
+  border-top: 3px solid #e11d48 !important;
 }
 
 .accent-bar-amber {
-  border-top: 2.5px solid #f59e0b !important;
+  border-top: 3px solid #d97706 !important;
 }
 
 .accent-bar-purple {
-  border-top: 2.5px solid #8b5cf6 !important;
+  border-top: 3px solid #7c3aed !important;
+}
+
+.accent-bar-terracotta {
+  border-top: 3px solid #c85a32 !important;
 }
 
 /* Tabular alignment for financial data */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
+  font-feature-settings: "tnum" 1;
 }
 
 /* Minimalist Scrollbar */
@@ -72,23 +216,10 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #121316;
+  background: var(--bg-canvas);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--border-strong);
   border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
-}
-
-/* Clean High-Contrast Tooltips */
-.recharts-default-tooltip {
-  background-color: #1e2027 !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  border-radius: 12px !important;
-  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.75) !important;
-  padding: 12px 16px !important;
 }

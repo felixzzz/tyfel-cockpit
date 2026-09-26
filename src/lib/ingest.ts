@@ -1,11 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { DuckDBConnection } from "@duckdb/node-api";
-import { getDuckDB } from "./duckdb";
-
-const RAW_DIR =
-  process.env.RAW_REPORTS_DIR ||
-  path.resolve(process.cwd(), "../reports/raw");
+import { getDuckDB, getRawReportsReadDirs, getRawReportsWriteDir } from "./duckdb";
 
 export type DetectedFileType = "majoo" | "majoo_attendance" | "klikit_orders" | "klikit_items" | "unknown";
 
@@ -222,47 +218,52 @@ function formatBytes(bytes: number): string {
 }
 
 export async function getRawFilesAudit(): Promise<RawFileAudit[]> {
-  if (!fs.existsSync(RAW_DIR)) return [];
-  const files = fs.readdirSync(RAW_DIR);
+  const readDirs = getRawReportsReadDirs();
+  if (readDirs.length === 0) return [];
+  const seenNames = new Set<string>();
   const result: RawFileAudit[] = [];
 
-  for (const f of files) {
-    if (!f.endsWith(".csv")) continue;
-    const fullPath = path.join(RAW_DIR, f);
-    try {
-      const stat = fs.statSync(fullPath);
-      let detected: DetectedFileType = "unknown";
-      let dateRangeLabel: string | undefined = undefined;
-
+  for (const rawDir of readDirs) {
+    const files = fs.readdirSync(rawDir);
+    for (const f of files) {
+      if (!f.endsWith(".csv") || seenNames.has(f)) continue;
+      const fullPath = path.join(rawDir, f);
       try {
-        const fd = fs.openSync(fullPath, "r");
-        const buf = Buffer.alloc(16384);
-        const bytesRead = fs.readSync(fd, buf, 0, 16384, 0);
-        fs.closeSync(fd);
-        const sample = buf.toString("utf-8", 0, bytesRead);
-        detected = detectFileType(sample, f);
-        
-        const nameMatch = f.match(/(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})/);
-        if (nameMatch) {
-          dateRangeLabel = `${nameMatch[1]} to ${nameMatch[2]}`;
-        }
-      } catch {
-        if (f.startsWith("majoo_")) detected = "majoo";
-        else if (f.startsWith("klikit_orders_")) detected = "klikit_orders";
-        else if (f.startsWith("klikit_items_")) detected = "klikit_items";
-      }
+        const stat = fs.statSync(fullPath);
+        let detected: DetectedFileType = "unknown";
+        let dateRangeLabel: string | undefined = undefined;
 
-      result.push({
-        name: f,
-        sizeBytes: stat.size,
-        sizeFormatted: formatBytes(stat.size),
-        modifiedAt: stat.mtime.toISOString(),
-        fileType: detected,
-        fileTypeLabel: getFileTypeLabel(detected),
-        dateRangeLabel,
-      });
-    } catch {
-      // ignore
+        try {
+          const fd = fs.openSync(fullPath, "r");
+          const buf = Buffer.alloc(16384);
+          const bytesRead = fs.readSync(fd, buf, 0, 16384, 0);
+          fs.closeSync(fd);
+          const sample = buf.toString("utf-8", 0, bytesRead);
+          detected = detectFileType(sample, f);
+
+          const nameMatch = f.match(/(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})/);
+          if (nameMatch) {
+            dateRangeLabel = `${nameMatch[1]} to ${nameMatch[2]}`;
+          }
+        } catch {
+          if (f.startsWith("majoo_")) detected = "majoo";
+          else if (f.startsWith("klikit_orders_")) detected = "klikit_orders";
+          else if (f.startsWith("klikit_items_")) detected = "klikit_items";
+        }
+
+        seenNames.add(f);
+        result.push({
+          name: f,
+          sizeBytes: stat.size,
+          sizeFormatted: formatBytes(stat.size),
+          modifiedAt: stat.mtime.toISOString(),
+          fileType: detected,
+          fileTypeLabel: getFileTypeLabel(detected),
+          dateRangeLabel,
+        });
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -277,8 +278,9 @@ export async function processUploadedFile(
   fileName: string,
   contentBuffer: Buffer
 ): Promise<IngestSummary> {
-  if (!fs.existsSync(RAW_DIR)) {
-    fs.mkdirSync(RAW_DIR, { recursive: true });
+  const writeDir = getRawReportsWriteDir();
+  if (!fs.existsSync(writeDir)) {
+    fs.mkdirSync(writeDir, { recursive: true });
   }
 
   const contentStr = contentBuffer.toString("utf-8");
@@ -290,8 +292,8 @@ export async function processUploadedFile(
 
   const { minDate, maxDate } = extractDateRange(contentStr, fileType);
   const canonicalName = getCanonicalFileName(fileType, minDate, maxDate, fileName);
-  const targetFilePath = path.join(RAW_DIR, canonicalName);
-  
+  const targetFilePath = path.join(writeDir, canonicalName);
+
   fs.writeFileSync(targetFilePath, contentBuffer);
 
   const db = await getDuckDB();

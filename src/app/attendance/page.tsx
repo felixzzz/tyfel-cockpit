@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import Link from "next/link";
 import {
   Users,
   Calendar,
@@ -11,7 +10,6 @@ import {
   Award,
   FileSpreadsheet,
   UploadCloud,
-  ArrowLeft,
   Sliders,
   Printer,
   Download,
@@ -29,7 +27,6 @@ import {
   RotateCcw,
   Maximize2,
   Minimize2,
-  X,
 } from "lucide-react";
 import type {
   AttendanceCycleReport,
@@ -725,7 +722,7 @@ export default function AttendancePayrollPage() {
         >
           <div className="w-full max-w-5xl mx-auto space-y-5 my-auto">
             {/* Full-Screen Modal Top Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-[#18191e] p-3.5 rounded-2xl border border-white/[0.12] shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3 cockpit-panel p-3.5 rounded-2xl shadow-xl">
               <div className="flex flex-wrap items-center gap-1.5">
                 {report.payslips.map((p) => {
                   const isActive =
@@ -739,7 +736,7 @@ export default function AttendancePayrollPage() {
                       className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                         isActive
                           ? "bg-[#5c7c5c] text-[#f5f2dc] font-semibold shadow"
-                          : "bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
+                          : "surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)]"
                       }`}
                     >
                       <span>{p.employee.employee_name}</span>
@@ -752,7 +749,7 @@ export default function AttendancePayrollPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-zinc-400 hidden sm:inline">
+                <span className="text-xs font-mono text-[var(--text-secondary)] hidden sm:inline">
                   {report.cycle_label}
                 </span>
                 <button
@@ -760,7 +757,7 @@ export default function AttendancePayrollPage() {
                   onClick={() =>
                     setSlipTheme(slipTheme === "light" ? "dark" : "light")
                   }
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] text-xs flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] text-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   {slipTheme === "light" ? (
                     <>
@@ -769,7 +766,7 @@ export default function AttendancePayrollPage() {
                     </>
                   ) : (
                     <>
-                      <Sun className="w-3.5 h-3.5 text-amber-300" />
+                      <Sun className="w-3.5 h-3.5 text-amber-500" />
                       <span>Classic</span>
                     </>
                   )}
@@ -777,7 +774,7 @@ export default function AttendancePayrollPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg badge-emerald text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Print Payslip</span>
@@ -785,7 +782,7 @@ export default function AttendancePayrollPage() {
                 <button
                   type="button"
                   onClick={() => setIsFullScreenSlip(false)}
-                  className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white border border-white/[0.12] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
                   title="Close Full Screen (Esc)"
                 >
                   <Minimize2 className="w-3.5 h-3.5" />
@@ -800,33 +797,26 @@ export default function AttendancePayrollPage() {
         </div>
       )}
 
-      <div className="no-print space-y-8">
+      <div className="no-print space-y-6">
       {/* =========================================================================
           Top Header: Navigation & Attendance CSV Upload
           ========================================================================= */}
-      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 pb-6 border-b border-white/[0.08]">
+      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 pb-5 border-b border-[var(--border-subtle)]">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 text-xs font-mono text-zinc-400 hover:text-white transition-colors bg-white/[0.04] hover:bg-white/[0.08] px-3 py-1.5 rounded-lg border border-white/[0.08]"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Back to Executive Cockpit
-            </Link>
-            <span className="text-xs font-mono uppercase tracking-widest px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-              Payroll & Attendance
-            </span>
-          </div>
           <div className="flex items-center gap-3.5">
-            <div className="p-2.5 rounded-2xl bg-[#5c7c5c]/25 border border-[#5c7c5c]/50 text-[#e9e5c9]">
+            <div className="p-2.5 rounded-2xl bg-[#5c7c5c]/20 border border-[#5c7c5c]/40 text-[#5c7c5c] dark:text-[#e9e5c9]">
               <Users className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-white">
-                Tyfel Coffee · Employee Attendance & Payslip Cockpit
-              </h1>
-              <p className="text-xs sm:text-sm text-zinc-400 mt-0.5">
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-[var(--text-primary)]">
+                  Tyfel Coffee · Staff Attendance & Payslips
+                </h1>
+                <span className="badge-emerald text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full font-semibold">
+                  Payroll Studio
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-0.5">
                 Monthly payroll periods (16th–15th), per-period employee overrides & automated attendance verification
               </p>
             </div>
@@ -845,7 +835,7 @@ export default function AttendancePayrollPage() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploadingCsv}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-black transition-colors cursor-pointer disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-[var(--accent-primary)] hover:opacity-90 text-white transition-all cursor-pointer disabled:opacity-50 shadow-sm"
           >
             <UploadCloud className="w-4 h-4" />
             {isUploadingCsv
@@ -856,23 +846,23 @@ export default function AttendancePayrollPage() {
           <button
             type="button"
             onClick={handleExportPayrollCsv}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-mono bg-white/[0.05] hover:bg-white/[0.1] text-zinc-200 border border-white/[0.1] transition-colors cursor-pointer"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-mono surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] transition-colors cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             Export Payroll CSV
           </button>
         </div>
       </header>
 
       {uploadNotice && (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-xs">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-200 text-xs">
           <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>{uploadNotice}</span>
           </div>
           <button
             onClick={() => setUploadNotice(null)}
-            className="text-zinc-400 hover:text-white text-xs font-mono"
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs font-mono cursor-pointer"
           >
             Dismiss
           </button>
@@ -880,9 +870,9 @@ export default function AttendancePayrollPage() {
       )}
 
       {saveBanner && (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-200 text-xs">
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-200 text-xs">
           <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
             <span>{saveBanner}</span>
           </div>
         </div>
@@ -891,16 +881,16 @@ export default function AttendancePayrollPage() {
       {/* =========================================================================
           Payroll Period Selector: Ordered by Year & Month
           ========================================================================= */}
-      <section className="rounded-2xl p-4 sm:p-5 border border-white/[0.08] bg-[#18191e] space-y-4">
+      <section className="cockpit-panel rounded-2xl p-4 sm:p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-zinc-300">
-              <Calendar className="w-4 h-4 text-emerald-400" />
+            <div className="flex items-center gap-2 text-xs font-mono uppercase tracking-wider text-[var(--text-primary)]">
+              <Calendar className="w-4 h-4 text-[var(--accent-primary)]" />
               <span className="font-semibold">Payroll Period (Year & Month)</span>
             </div>
 
             {/* Year Selector Tabs (Ordered Ascending) */}
-            <div className="inline-flex items-center bg-black/40 p-1 rounded-xl border border-white/[0.08]">
+            <div className="inline-flex items-center surface-well p-1 rounded-xl">
               {(report?.available_years || [2025, 2026]).map((yr) => (
                 <button
                   key={yr}
@@ -908,8 +898,8 @@ export default function AttendancePayrollPage() {
                   onClick={() => setSelectedYear(yr)}
                   className={`px-3 py-1 rounded-lg text-xs font-mono font-semibold transition-colors cursor-pointer ${
                     selectedYear === yr
-                      ? "bg-emerald-500 text-black"
-                      : "text-zinc-400 hover:text-white"
+                      ? "bg-[var(--accent-primary)] text-white"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
                   {yr}
@@ -918,16 +908,16 @@ export default function AttendancePayrollPage() {
             </div>
 
             {report && (
-              <span className="text-xs font-mono text-zinc-400 flex items-center gap-2">
+              <span className="text-xs font-mono text-[var(--text-secondary)] flex items-center gap-2">
                 <span>
                   Active Period:{" "}
-                  <strong className="text-white">{report.cycle_label}</strong> ·{" "}
-                  <span className="text-emerald-400 font-semibold">
+                  <strong className="text-[var(--text-primary)]">{report.cycle_label}</strong> ·{" "}
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
                     {report.salary_code}
                   </span>
                 </span>
                 {report.is_current_running && (
-                  <span className="px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[11px]">
+                  <span className="badge-blue px-2 py-0.5 rounded-full text-[11px]">
                     In Progress · Read-Only
                   </span>
                 )}
@@ -946,7 +936,7 @@ export default function AttendancePayrollPage() {
                   setSelectedPeriod(prevCycle.period_key);
                 }
               }}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 border border-white/[0.08] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span>Prev Month</span>
@@ -960,7 +950,7 @@ export default function AttendancePayrollPage() {
                   setSelectedPeriod(nextCycle.period_key);
                 }
               }}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono bg-white/[0.04] hover:bg-white/[0.08] text-zinc-200 border border-white/[0.08] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-mono surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer transition-colors"
               title={
                 !nextCycle
                   ? "Future periods are locked"
@@ -999,11 +989,11 @@ export default function AttendancePayrollPage() {
                 className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between min-h-[72px] ${
                   isSelected
                     ? cyc.is_current_running
-                      ? "bg-sky-500/15 border-sky-500/60 text-white shadow-sm cursor-pointer"
-                      : "bg-emerald-500/15 border-emerald-500/60 text-white shadow-sm cursor-pointer"
+                      ? "bg-sky-500/15 border-sky-500/60 text-[var(--text-primary)] shadow-sm cursor-pointer"
+                      : "bg-emerald-500/15 border-emerald-500/60 text-[var(--text-primary)] shadow-sm cursor-pointer"
                     : cyc.is_selectable
-                      ? "bg-white/[0.03] hover:bg-white/[0.07] border-white/[0.08] text-zinc-200 cursor-pointer"
-                      : "bg-black/25 border-white/[0.04] text-zinc-600 cursor-not-allowed opacity-55"
+                      ? "surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] cursor-pointer"
+                      : "bg-[var(--bg-surface-2)]/40 border-[var(--border-subtle)] text-[var(--text-muted)] cursor-not-allowed opacity-55"
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
@@ -1011,32 +1001,32 @@ export default function AttendancePayrollPage() {
                     {mm} · {cyc.month_short}
                   </span>
                   {!cyc.is_selectable ? (
-                    <Lock className="w-3 h-3 text-zinc-600 shrink-0" />
+                    <Lock className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
                   ) : cyc.is_current_running ? (
                     <span
-                      className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"
+                      className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0"
                       title="In Progress (Read-Only)"
                     />
                   ) : cyc.log_count > 0 ? (
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                   ) : null}
                 </div>
 
                 <div className="mt-1.5 space-y-0.5">
-                  <div className="text-[10px] font-mono text-zinc-400 truncate">
+                  <div className="text-[10px] font-mono text-[var(--text-secondary)] truncate">
                     {cyc.start_date.slice(5)} → {cyc.end_date.slice(5)}
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-mono">
                     {cyc.is_current_running ? (
-                      <span className="text-sky-400 font-semibold">
+                      <span className="text-sky-600 dark:text-sky-400 font-semibold">
                         In Progress ({cyc.log_count})
                       </span>
                     ) : cyc.is_selectable ? (
                       <span
                         className={
                           cyc.log_count > 0
-                            ? "text-emerald-400 font-semibold"
-                            : "text-zinc-500"
+                            ? "text-emerald-600 dark:text-emerald-400 font-semibold"
+                            : "text-[var(--text-muted)]"
                         }
                       >
                         {cyc.log_count > 0
@@ -1044,11 +1034,11 @@ export default function AttendancePayrollPage() {
                           : "0 logs"}
                       </span>
                     ) : (
-                      <span className="text-zinc-600">Locked</span>
+                      <span className="text-[var(--text-muted)]">Locked</span>
                     )}
                     {cyc.override_count > 0 && (
                       <span
-                        className="px-1 rounded bg-amber-500/20 text-amber-300"
+                        className="px-1 rounded badge-amber text-[10px]"
                         title={`${cyc.override_count} saved employee override(s) in this period`}
                       >
                         {cyc.override_count} adj
@@ -1066,83 +1056,83 @@ export default function AttendancePayrollPage() {
           Executive Payroll & Punctuality KPIs
           ========================================================================= */}
       {loading && !report && (
-        <div className="rounded-2xl p-8 bg-[#18191e] border border-white/[0.08] text-center text-xs font-mono text-zinc-400 animate-pulse">
+        <div className="cockpit-panel rounded-2xl p-8 text-center text-xs font-mono text-[var(--text-secondary)] animate-pulse">
           Loading Payroll & Attendance Telemetry from DuckDB...
         </div>
       )}
       {report && (
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="rounded-2xl p-5 bg-[#18191e] border border-white/[0.08]">
-            <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-              <span className="font-mono uppercase tracking-wider">
+          <div className="cockpit-panel rounded-2xl p-5 accent-bar-emerald">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
+              <span className="font-mono uppercase tracking-wider font-semibold">
                 Cycle Net Payroll ({report.salary_code})
               </span>
-              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <div className="text-2xl font-bold font-mono text-white">
+            <div className="text-2xl font-bold font-mono text-[var(--text-primary)]">
               {formatRp(report.overall.total_net_take_home)}
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+            <div className="mt-2 flex items-center justify-between text-xs text-[var(--text-secondary)]">
               <span>Gross: {formatRp(report.overall.total_gross_payroll)}</span>
-              <span className="text-amber-300 font-mono">
+              <span className="text-amber-600 dark:text-amber-300 font-mono">
                 Kasbon: -{formatRp(report.overall.total_kasbon_deducted)}
               </span>
             </div>
           </div>
 
-          <div className="rounded-2xl p-5 bg-[#18191e] border border-white/[0.08]">
-            <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-              <span className="font-mono uppercase tracking-wider">
+          <div className="cockpit-panel rounded-2xl p-5 accent-bar-blue">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
+              <span className="font-mono uppercase tracking-wider font-semibold">
                 Active Staff & Paid Shifts
               </span>
-              <UserCheck className="w-4 h-4 text-sky-400" />
+              <UserCheck className="w-4 h-4 text-sky-600 dark:text-sky-400" />
             </div>
-            <div className="text-2xl font-bold font-mono text-white">
+            <div className="text-2xl font-bold font-mono text-[var(--text-primary)]">
               {report.overall.active_employees} Staff ·{" "}
               {report.overall.total_work_days_paid} Days
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+            <div className="mt-2 flex items-center justify-between text-xs text-[var(--text-secondary)]">
               <span>{report.overall.total_attendance_logs} raw logs</span>
-              <span className="text-sky-300 font-mono">
+              <span className="text-sky-600 dark:text-sky-300 font-mono">
                 Avg {report.overall.avg_daily_shift_hours}h / shift
               </span>
             </div>
           </div>
 
-          <div className="rounded-2xl p-5 bg-[#18191e] border border-white/[0.08]">
-            <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-              <span className="font-mono uppercase tracking-wider">
+          <div className="cockpit-panel rounded-2xl p-5 accent-bar-amber">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
+              <span className="font-mono uppercase tracking-wider font-semibold">
                 Punctuality & Telat Fines
               </span>
-              <Clock className="w-4 h-4 text-amber-400" />
+              <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             </div>
-            <div className="text-2xl font-bold font-mono text-white">
+            <div className="text-2xl font-bold font-mono text-[var(--text-primary)]">
               {report.overall.overall_punctuality_pct}% On-Time
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
-              <span className="text-rose-400 font-mono">
+            <div className="mt-2 flex items-center justify-between text-xs text-[var(--text-secondary)]">
+              <span className="text-rose-600 dark:text-rose-400 font-mono">
                 {report.overall.total_late_incidents}x Telat (-
                 {formatRp(report.overall.total_late_penalties)})
               </span>
-              <span className="text-emerald-400 font-mono">
+              <span className="text-emerald-600 dark:text-emerald-400 font-mono">
                 {report.overall.zero_late_achievers} Bonus Achievers
               </span>
             </div>
           </div>
 
-          <div className="rounded-2xl p-5 bg-[#18191e] border border-white/[0.08]">
-            <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-              <span className="font-mono uppercase tracking-wider">
+          <div className="cockpit-panel rounded-2xl p-5 accent-bar-purple">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
+              <span className="font-mono uppercase tracking-wider font-semibold">
                 POS Clock Anomaly Shield
               </span>
-              <ShieldAlert className="w-4 h-4 text-purple-400" />
+              <ShieldAlert className="w-4 h-4 text-purple-600 dark:text-purple-400" />
             </div>
-            <div className="text-2xl font-bold font-mono text-white">
+            <div className="text-2xl font-bold font-mono text-[var(--text-primary)]">
               {report.overall.total_closing_taps +
                 report.overall.total_overnight_rollovers}{" "}
               Flagged
             </div>
-            <div className="mt-2 flex items-center justify-between text-xs text-zinc-400">
+            <div className="mt-2 flex items-center justify-between text-xs text-[var(--text-secondary)]">
               <span title="Staff forgot morning clock-in and double-tapped at closing (<15s)">
                 {report.overall.total_closing_taps}x Closing Double-Tap
               </span>
@@ -1162,7 +1152,7 @@ export default function AttendancePayrollPage() {
           {/* Left 7 Columns: Authentic Tyfel Coffee Payslip Card */}
           <div className="xl:col-span-7 space-y-4">
             {/* Employee Switcher Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-[#18191e] p-3 rounded-2xl border border-white/[0.08]">
+            <div className="flex flex-wrap items-center justify-between gap-2 cockpit-panel p-3 rounded-2xl">
               <div className="flex flex-wrap items-center gap-1.5">
                 {report.payslips.map((p) => {
                   const isActive =
@@ -1179,7 +1169,7 @@ export default function AttendancePayrollPage() {
                       className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                         isActive
                           ? "bg-[#5c7c5c] text-[#f5f2dc] font-semibold shadow"
-                          : "bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300"
+                          : "surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)]"
                       }`}
                     >
                       <span>{p.employee.employee_name}</span>
@@ -1188,7 +1178,7 @@ export default function AttendancePayrollPage() {
                       </span>
                       {p.has_period_override && (
                         <span
-                          className="w-1.5 h-1.5 rounded-full bg-amber-300"
+                          className="w-1.5 h-1.5 rounded-full bg-amber-400"
                           title="Has saved override for this period"
                         />
                       )}
@@ -1203,7 +1193,7 @@ export default function AttendancePayrollPage() {
                   onClick={() =>
                     setSlipTheme(slipTheme === "light" ? "dark" : "light")
                   }
-                  className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] text-xs flex items-center gap-1 cursor-pointer"
+                  className="p-2 rounded-lg surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] text-xs flex items-center gap-1 cursor-pointer"
                   title="Toggle Classic Spreadsheet Light View vs Dark View"
                 >
                   {slipTheme === "light" ? (
@@ -1213,7 +1203,7 @@ export default function AttendancePayrollPage() {
                     </>
                   ) : (
                     <>
-                      <Sun className="w-3.5 h-3.5 text-amber-300" />
+                      <Sun className="w-3.5 h-3.5 text-amber-500" />
                       <span className="text-[11px]">Classic</span>
                     </>
                   )}
@@ -1223,10 +1213,10 @@ export default function AttendancePayrollPage() {
                   <button
                     type="button"
                     onClick={() => setIsEditingSlip(!isEditingSlip)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 border transition-colors cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                       isEditingSlip
-                        ? "bg-amber-500/20 border-amber-500/50 text-amber-300"
-                        : "bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300"
+                        ? "badge-amber"
+                        : "badge-emerald"
                     }`}
                   >
                     <Edit3 className="w-3.5 h-3.5" />
@@ -1238,7 +1228,7 @@ export default function AttendancePayrollPage() {
                   </button>
                 ) : (
                   <span
-                    className="px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center gap-1.5 bg-sky-500/10 border border-sky-500/30 text-sky-300 cursor-not-allowed"
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center gap-1.5 badge-blue cursor-not-allowed"
                     title="In-progress periods can be viewed live, but overrides are locked until the period closes"
                   >
                     <Lock className="w-3 h-3" />
@@ -1249,7 +1239,7 @@ export default function AttendancePayrollPage() {
                 <button
                   type="button"
                   onClick={() => setIsFullScreenSlip(true)}
-                  className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] cursor-pointer flex items-center gap-1 text-xs"
+                  className="p-2 rounded-lg surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] cursor-pointer flex items-center gap-1 text-xs"
                   title="Amplify / Open Payslip in Full Screen Modal"
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
@@ -1259,7 +1249,7 @@ export default function AttendancePayrollPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="p-2 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-zinc-300 border border-white/[0.08] cursor-pointer"
+                  className="p-2 rounded-lg surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] cursor-pointer"
                   title="Print Only Payslip"
                 >
                   <Printer className="w-3.5 h-3.5" />
@@ -1276,17 +1266,17 @@ export default function AttendancePayrollPage() {
             {isEditingSlip && report.is_editable ? (
               <form
                 onSubmit={handleSavePayslip}
-                className="rounded-2xl p-5 bg-[#18191e] border border-emerald-500/40 space-y-4"
+                className="cockpit-panel rounded-2xl p-5 border-emerald-500/40 space-y-4"
               >
-                <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+                <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
                   <div>
-                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Sliders className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       Period Override · {activeSlip.employee.full_name}
                     </h3>
-                    <p className="text-xs text-zinc-400 mt-0.5">
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                       Saved strictly for{" "}
-                      <strong className="text-emerald-300 font-mono">
+                      <strong className="text-emerald-600 dark:text-emerald-400 font-mono">
                         {report.year}-{String(report.month).padStart(2, "0")} ({report.salary_code})
                       </strong>{" "}
                       ({report.start_date} – {report.end_date})
@@ -1295,7 +1285,7 @@ export default function AttendancePayrollPage() {
                   <button
                     type="button"
                     onClick={() => setIsEditingSlip(false)}
-                    className="text-xs text-zinc-400 hover:text-white"
+                    className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -1304,53 +1294,53 @@ export default function AttendancePayrollPage() {
                 {/* Employee Bio */}
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
-                    <label className="block text-zinc-400 mb-1">Full Name</label>
+                    <label className="block text-[var(--text-secondary)] mb-1">Full Name</label>
                     <input
                       type="text"
                       value={editFullName}
                       onChange={(e) => setEditFullName(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Role / Division
                     </label>
                     <input
                       type="text"
                       value={editRole}
                       onChange={(e) => setEditRole(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Join Date Label
                     </label>
                     <input
                       type="text"
                       value={editJoinDate}
                       onChange={(e) => setEditJoinDate(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Period Shift Cutoff (HH:MM)
                     </label>
                     <input
                       type="time"
                       value={editShiftCutoff}
                       onChange={(e) => setEditShiftCutoff(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                 </div>
 
                 {/* Period Rate Overrides */}
-                <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-white/[0.06]">
+                <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-[var(--border-subtle)]">
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Basic Salary ({report.salary_code})
                     </label>
                     <input
@@ -1359,22 +1349,22 @@ export default function AttendancePayrollPage() {
                       onChange={(e) =>
                         setEditBasicSalary(Number(e.target.value))
                       }
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Daily Rate ({report.salary_code})
                     </label>
                     <input
                       type="number"
                       value={editDailyRate}
                       onChange={(e) => setEditDailyRate(Number(e.target.value))}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Telat Penalty ({report.salary_code})
                     </label>
                     <input
@@ -1383,11 +1373,11 @@ export default function AttendancePayrollPage() {
                       onChange={(e) =>
                         setEditLatePenalty(Number(e.target.value))
                       }
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Bonus Tidak Telat ({report.salary_code})
                     </label>
                     <input
@@ -1396,20 +1386,20 @@ export default function AttendancePayrollPage() {
                       onChange={(e) =>
                         setEditNoLateBonus(Number(e.target.value))
                       }
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                 </div>
 
                 {/* Period Count Overrides */}
-                <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-white/[0.06]">
+                <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-[var(--border-subtle)]">
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-zinc-400">Daily (#)</label>
+                      <label className="text-[var(--text-secondary)]">Daily (#)</label>
                       <button
                         type="button"
                         onClick={() => setEditDailyOverride("")}
-                        className="text-[10px] text-emerald-400 hover:underline font-mono"
+                        className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-mono cursor-pointer"
                       >
                         Auto ({activeSlip.computed_daily_count})
                       </button>
@@ -1419,16 +1409,16 @@ export default function AttendancePayrollPage() {
                       placeholder={`Auto: ${activeSlip.computed_daily_count}`}
                       value={editDailyOverride}
                       onChange={(e) => setEditDailyOverride(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-zinc-400">Telat (#)</label>
+                      <label className="text-[var(--text-secondary)]">Telat (#)</label>
                       <button
                         type="button"
                         onClick={() => setEditLateOverride("")}
-                        className="text-[10px] text-emerald-400 hover:underline font-mono"
+                        className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-mono cursor-pointer"
                       >
                         Auto ({activeSlip.computed_late_count})
                       </button>
@@ -1438,16 +1428,16 @@ export default function AttendancePayrollPage() {
                       placeholder={`Auto: ${activeSlip.computed_late_count}`}
                       value={editLateOverride}
                       onChange={(e) => setEditLateOverride(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-zinc-400">Bonus (#)</label>
+                      <label className="text-[var(--text-secondary)]">Bonus (#)</label>
                       <button
                         type="button"
                         onClick={() => setEditBonusQtyOverride("")}
-                        className="text-[10px] text-emerald-400 hover:underline font-mono"
+                        className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-mono cursor-pointer"
                       >
                         Auto
                       </button>
@@ -1457,15 +1447,15 @@ export default function AttendancePayrollPage() {
                       placeholder="Auto (0/1)"
                       value={editBonusQtyOverride}
                       onChange={(e) => setEditBonusQtyOverride(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                 </div>
 
                 {/* Extra Line & Kasbon for this Period */}
-                <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-white/[0.06]">
+                <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-[var(--border-subtle)]">
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Extra Line Label
                     </label>
                     <input
@@ -1473,20 +1463,20 @@ export default function AttendancePayrollPage() {
                       placeholder="e.g. Lembur / THR"
                       value={editCustomDesc}
                       onChange={(e) => setEditCustomDesc(e.target.value)}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">Extra #</label>
+                    <label className="block text-[var(--text-secondary)] mb-1">Extra #</label>
                     <input
                       type="number"
                       value={editCustomQty}
                       onChange={(e) => setEditCustomQty(Number(e.target.value))}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Extra Value (Rp)
                     </label>
                     <input
@@ -1495,25 +1485,25 @@ export default function AttendancePayrollPage() {
                       onChange={(e) =>
                         setEditCustomUnit(Number(e.target.value))
                       }
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-white/[0.06]">
+                <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-[var(--border-subtle)]">
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Kasbon (#) for {report.salary_code}
                     </label>
                     <input
                       type="number"
                       value={editKasbonQty}
                       onChange={(e) => setEditKasbonQty(Number(e.target.value))}
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-zinc-400 mb-1">
+                    <label className="block text-[var(--text-secondary)] mb-1">
                       Kasbon Amount (Rp)
                     </label>
                     <input
@@ -1522,13 +1512,13 @@ export default function AttendancePayrollPage() {
                       onChange={(e) =>
                         setEditKasbonUnit(Number(e.target.value))
                       }
-                      className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white font-mono"
+                      className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
                 </div>
 
-                <div className="text-xs pt-2 border-t border-white/[0.06]">
-                  <label className="block text-zinc-400 mb-1">
+                <div className="text-xs pt-2 border-t border-[var(--border-subtle)]">
+                  <label className="block text-[var(--text-secondary)] mb-1">
                     Period Notes ({report.salary_code})
                   </label>
                   <input
@@ -1536,31 +1526,31 @@ export default function AttendancePayrollPage() {
                     placeholder="Optional note for this employee in this period..."
                     value={editNotes}
                     onChange={(e) => setEditNotes(e.target.value)}
-                    className="w-full bg-black/40 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-white"
+                    className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)]"
                   />
                 </div>
 
-                <label className="flex items-center gap-2 text-xs text-zinc-400 pt-1 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] pt-1 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={alsoUpdateMasterDefaults}
                     onChange={(e) =>
                       setAlsoUpdateMasterDefaults(e.target.checked)
                     }
-                    className="rounded border-white/20"
+                    className="rounded border-[var(--border-strong)]"
                   />
                   <span>
                     Also update default base salary / daily rate for un-overridden periods
                   </span>
                 </label>
 
-                <div className="flex items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
+                <div className="flex items-center justify-between gap-2 pt-3 border-t border-[var(--border-subtle)]">
                   {activeSlip.has_period_override ? (
                     <button
                       type="button"
                       disabled={savingSlip}
                       onClick={handleResetPeriodOverride}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl badge-rose text-xs font-medium cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                       Reset {report.salary_code} Override
@@ -1572,7 +1562,7 @@ export default function AttendancePayrollPage() {
                   <button
                     type="submit"
                     disabled={savingSlip}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--accent-primary)] hover:opacity-90 text-white font-semibold text-xs cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5" />
                     {savingSlip
@@ -1583,50 +1573,50 @@ export default function AttendancePayrollPage() {
               </form>
             ) : (
               /* Audit Card for Selected Employee */
-              <div className="rounded-2xl p-5 bg-[#18191e] border border-white/[0.08] space-y-5">
-                <div className="flex items-center justify-between border-b border-white/[0.08] pb-3.5">
+              <div className="cockpit-panel rounded-2xl p-5 space-y-5">
+                <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3.5">
                   <div>
-                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       Attendance Verification · {activeSlip.employee.full_name}
                     </h3>
-                    <p className="text-xs text-zinc-400 mt-0.5">
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                       {activeSlip.raw_logs_count} clock-in records in{" "}
                       {report.start_date} – {report.end_date}
                     </p>
                   </div>
-                  <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-white/[0.05] text-zinc-300 border border-white/[0.08]">
+                  <span className="text-xs font-mono px-2.5 py-1 rounded-lg surface-well text-[var(--text-primary)]">
                     Cutoff {activeSlip.effective_shift_start}
                   </span>
                 </div>
 
                 {/* Shift Breakdown Mini Grid */}
                 <div className="grid grid-cols-3 gap-2.5 text-center">
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="text-lg font-bold font-mono text-white">
+                  <div className="p-3 rounded-xl surface-well">
+                    <div className="text-lg font-bold font-mono text-[var(--text-primary)]">
                       {activeSlip.full_shifts_count}
                     </div>
-                    <div className="text-[11px] text-zinc-400">Full Shifts</div>
+                    <div className="text-[11px] text-[var(--text-secondary)]">Full Shifts</div>
                   </div>
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                  <div className="p-3 rounded-xl surface-well">
                     <div
                       className={`text-lg font-bold font-mono ${
                         activeSlip.late_qty > 0
-                          ? "text-rose-400"
-                          : "text-emerald-400"
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-emerald-600 dark:text-emerald-400"
                       }`}
                     >
                       {activeSlip.late_qty}
                     </div>
-                    <div className="text-[11px] text-zinc-400">
+                    <div className="text-[11px] text-[var(--text-secondary)]">
                       Telat (&gt;{activeSlip.effective_shift_start})
                     </div>
                   </div>
-                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <div className="text-lg font-bold font-mono text-sky-400">
+                  <div className="p-3 rounded-xl surface-well">
+                    <div className="text-lg font-bold font-mono text-sky-600 dark:text-sky-400">
                       {activeSlip.avg_effective_hours}h
                     </div>
-                    <div className="text-[11px] text-zinc-400">
+                    <div className="text-[11px] text-[var(--text-secondary)]">
                       Avg Shift / Day
                     </div>
                   </div>
@@ -1635,17 +1625,17 @@ export default function AttendancePayrollPage() {
                 {/* Exact Dates of Telat Incidents */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-mono uppercase tracking-wider text-zinc-400">
+                    <span className="font-mono uppercase tracking-wider text-[var(--text-secondary)]">
                       Telat Incident Log ({activeSlip.late_logs.length} dates)
                     </span>
-                    <span className="font-mono text-rose-400">
+                    <span className="font-mono text-rose-600 dark:text-rose-400">
                       Total +{activeSlip.total_late_minutes} mins late
                     </span>
                   </div>
 
                   {activeSlip.late_logs.length === 0 ? (
-                    <div className="p-3.5 rounded-xl bg-emerald-950/25 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2.5">
-                      <Award className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs flex items-center gap-2.5">
+                      <Award className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                       <span>
                         Zero late arrivals in this period! Qualifies for{" "}
                         <strong>
@@ -1660,20 +1650,20 @@ export default function AttendancePayrollPage() {
                       {activeSlip.late_logs.map((ll) => (
                         <div
                           key={ll.attendance_id}
-                          className="flex items-center justify-between px-3 py-2 rounded-lg bg-rose-950/20 border border-rose-500/25 text-xs"
+                          className="flex items-center justify-between px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs"
                         >
                           <div className="flex items-center gap-2.5">
-                            <span className="font-mono font-semibold text-white">
+                            <span className="font-mono font-semibold text-[var(--text-primary)]">
                               {ll.work_date}
                             </span>
-                            <span className="font-mono text-rose-300">
+                            <span className="font-mono text-rose-600 dark:text-rose-300">
                               In: {ll.clock_in}
                             </span>
-                            <span className="text-zinc-400 font-mono text-[11px]">
+                            <span className="text-[var(--text-secondary)] font-mono text-[11px]">
                               Out: {ll.clock_out}
                             </span>
                           </div>
-                          <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300">
+                          <span className="badge-rose font-mono text-[11px] px-2 py-0.5 rounded">
                             +{ll.late_minutes}m late
                           </span>
                         </div>
@@ -1684,28 +1674,28 @@ export default function AttendancePayrollPage() {
 
                 {/* Anomaly / Short Shift Alerts for Selected Employee */}
                 {activeSlip.anomaly_logs.length > 0 && (
-                  <div className="space-y-2 pt-2 border-t border-white/[0.06]">
-                    <div className="text-xs font-mono uppercase tracking-wider text-zinc-400">
+                  <div className="space-y-2 pt-2 border-t border-[var(--border-subtle)]">
+                    <div className="text-xs font-mono uppercase tracking-wider text-[var(--text-secondary)]">
                       Shift Anomalies & Notes ({activeSlip.anomaly_logs.length})
                     </div>
                     <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
                       {activeSlip.anomaly_logs.map((al) => (
                         <div
                           key={al.attendance_id}
-                          className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-950/20 border border-amber-500/25 text-xs"
+                          className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs"
                         >
                           <div>
-                            <span className="font-mono font-semibold text-white mr-2">
+                            <span className="font-mono font-semibold text-[var(--text-primary)] mr-2">
                               {al.work_date}
                             </span>
-                            <span className="font-mono text-amber-300">
+                            <span className="font-mono text-amber-600 dark:text-amber-300">
                               {al.clock_in} → {al.clock_out}
                             </span>
-                            <div className="text-[11px] text-zinc-400 mt-0.5">
+                            <div className="text-[11px] text-[var(--text-secondary)] mt-0.5">
                               Raw: {al.raw_duration}
                             </div>
                           </div>
-                          <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 uppercase">
+                          <span className="badge-amber font-mono text-[10px] px-2 py-0.5 rounded uppercase">
                             {al.anomaly_type.replace(/_/g, " ")}
                           </span>
                         </div>
@@ -1723,18 +1713,18 @@ export default function AttendancePayrollPage() {
           Team Roster & Payroll Matrix (All Employees for Selected Period)
           ========================================================================= */}
       {report && (
-        <section className="rounded-2xl bg-[#18191e] border border-white/[0.08] overflow-hidden">
-          <div className="p-5 border-b border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <section className="cockpit-panel rounded-2xl overflow-hidden">
+          <div className="p-5 border-b border-[var(--border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-bold text-white">
+              <h2 className="text-base font-bold text-[var(--text-primary)]">
                 Outlet Payroll & Attendance Matrix · {report.cycle_label}
               </h2>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                 Click any employee row to inspect or override their payslip for{" "}
                 {report.salary_code}
               </p>
             </div>
-            <div className="text-xs font-mono text-zinc-400">
+            <div className="text-xs font-mono text-[var(--text-secondary)]">
               Showing {report.payslips.length} employees
             </div>
           </div>
@@ -1742,7 +1732,7 @@ export default function AttendancePayrollPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left border-collapse">
               <thead>
-                <tr className="bg-white/[0.03] text-zinc-400 font-mono uppercase border-b border-white/[0.08]">
+                <tr className="bg-[var(--bg-surface-2)] text-[var(--text-secondary)] font-mono uppercase border-b border-[var(--border-subtle)]">
                   <th className="py-3 px-4">Employee</th>
                   <th className="py-3 px-3">Role & Cutoff</th>
                   <th className="py-3 px-3 text-right">Raw Logs</th>
@@ -1757,7 +1747,7 @@ export default function AttendancePayrollPage() {
                   <th className="py-3 px-4 text-right">Net Pay</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.06]">
+              <tbody className="divide-y divide-[var(--border-subtle)]">
                 {report.payslips.map((p) => {
                   const isSelected =
                     p.employee.employee_name ===
@@ -1771,34 +1761,34 @@ export default function AttendancePayrollPage() {
                       className={`cursor-pointer transition-colors ${
                         isSelected
                           ? "bg-emerald-500/10 hover:bg-emerald-500/15"
-                          : "hover:bg-white/[0.04]"
+                          : "hover:bg-[var(--bg-surface-2)]/60"
                       }`}
                     >
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-white flex items-center gap-2">
+                        <div className="font-semibold text-[var(--text-primary)] flex items-center gap-2">
                           <span>{p.employee.full_name}</span>
                           {p.has_period_override && (
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                            <span className="badge-amber text-[10px] font-mono px-1.5 py-0.5 rounded">
                               Override
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-zinc-400">
+                        <div className="text-[11px] text-[var(--text-secondary)]">
                           ID: {p.employee.employee_name} ·{" "}
                           {p.employee.join_date_label}
                         </div>
                       </td>
                       <td className="py-3.5 px-3">
-                        <div className="text-zinc-200">{p.employee.role}</div>
-                        <div className="text-[11px] font-mono text-zinc-400">
+                        <div className="text-[var(--text-primary)]">{p.employee.role}</div>
+                        <div className="text-[11px] font-mono text-[var(--text-secondary)]">
                           In ≤ {p.effective_shift_start}
                         </div>
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-zinc-300">
+                      <td className="py-3.5 px-3 text-right font-mono text-[var(--text-secondary)]">
                         <div>{p.raw_logs_count}</div>
                         {(p.closing_taps_count > 0 ||
                           p.overnight_rollovers_count > 0) && (
-                          <div className="text-[10px] text-amber-400">
+                          <div className="text-[10px] text-amber-600 dark:text-amber-400">
                             {p.closing_taps_count > 0
                               ? `${p.closing_taps_count} tap `
                               : ""}
@@ -1808,39 +1798,39 @@ export default function AttendancePayrollPage() {
                           </div>
                         )}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-bold text-white">
+                      <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
                         {p.daily_qty}
                       </td>
                       <td className="py-3.5 px-3 text-right font-mono">
                         <span
                           className={`px-2 py-0.5 rounded ${
                             p.late_qty === 0
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-rose-500/15 text-rose-300 font-bold"
+                              ? "badge-emerald"
+                              : "badge-rose font-bold"
                           }`}
                         >
                           {p.late_qty}
                         </span>
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-zinc-300">
+                      <td className="py-3.5 px-3 text-right font-mono text-[var(--text-secondary)]">
                         {formatAccountingRp(p.basic_total)}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-zinc-200">
+                      <td className="py-3.5 px-3 text-right font-mono text-[var(--text-primary)]">
                         {formatAccountingRp(p.daily_total)}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-rose-400">
+                      <td className="py-3.5 px-3 text-right font-mono text-rose-600 dark:text-rose-400">
                         {formatAccountingRp(p.late_total)}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-emerald-400">
+                      <td className="py-3.5 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
                         {formatAccountingRp(p.bonus_tidak_telat_total)}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-bold text-white">
+                      <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
                         {formatAccountingRp(p.grand_total, false)}
                       </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-amber-300">
+                      <td className="py-3.5 px-3 text-right font-mono text-amber-600 dark:text-amber-300">
                         {formatAccountingRp(p.kasbon_total)}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-300 text-sm">
+                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-300 text-sm">
                         {formatAccountingRp(p.net_take_home_pay, false)}
                       </td>
                     </tr>
@@ -1848,26 +1838,26 @@ export default function AttendancePayrollPage() {
                 })}
               </tbody>
               <tfoot>
-                <tr className="bg-white/[0.04] font-mono font-bold text-white border-t border-white/[0.1]">
+                <tr className="bg-[var(--bg-surface-2)] font-mono font-bold text-[var(--text-primary)] border-t border-[var(--border-default)]">
                   <td colSpan={3} className="py-3.5 px-4 text-left uppercase">
                     Total Cycle Liability ({report.salary_code})
                   </td>
                   <td className="py-3.5 px-3 text-right">
                     {report.overall.total_work_days_paid}
                   </td>
-                  <td className="py-3.5 px-3 text-right text-rose-300">
+                  <td className="py-3.5 px-3 text-right text-rose-600 dark:text-rose-300">
                     {report.overall.total_late_incidents}
                   </td>
-                  <td colSpan={4} className="py-3.5 px-3 text-right text-zinc-400">
+                  <td colSpan={4} className="py-3.5 px-3 text-right text-[var(--text-secondary)]">
                     Bonuses: {formatRp(report.overall.total_bonuses_paid)}
                   </td>
                   <td className="py-3.5 px-3 text-right">
                     {formatRp(report.overall.total_gross_payroll)}
                   </td>
-                  <td className="py-3.5 px-3 text-right text-amber-300">
+                  <td className="py-3.5 px-3 text-right text-amber-600 dark:text-amber-300">
                     -{formatRp(report.overall.total_kasbon_deducted)}
                   </td>
-                  <td className="py-3.5 px-4 text-right text-emerald-400 text-sm">
+                  <td className="py-3.5 px-4 text-right text-emerald-600 dark:text-emerald-400 text-sm">
                     {formatRp(report.overall.total_net_take_home)}
                   </td>
                 </tr>
@@ -1881,13 +1871,13 @@ export default function AttendancePayrollPage() {
           Daily Attendance Log Explorer (Laporan Absensi Audit Table)
           ========================================================================= */}
       {report && (
-        <section className="rounded-2xl bg-[#18191e] border border-white/[0.08] overflow-hidden">
-          <div className="p-5 border-b border-white/[0.08] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <section className="cockpit-panel rounded-2xl overflow-hidden">
+          <div className="p-5 border-b border-[var(--border-subtle)] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <h2 className="text-base font-bold text-white">
+              <h2 className="text-base font-bold text-[var(--text-primary)]">
                 Granular Attendance Logs (Laporan Absensi)
               </h2>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                 Showing {filteredLogs.length} of {report.recent_logs.length} logs in {report.start_date} – {report.end_date}
               </p>
             </div>
@@ -1897,7 +1887,7 @@ export default function AttendancePayrollPage() {
               <select
                 value={logEmpFilter}
                 onChange={(e) => setLogEmpFilter(e.target.value)}
-                className="bg-black/40 border border-white/[0.12] rounded-xl px-3 py-1.5 text-xs text-white"
+                className="surface-well rounded-xl px-3 py-1.5 text-xs text-[var(--text-primary)]"
               >
                 <option value="all">All Employees</option>
                 {report.payslips.map((p) => (
@@ -1911,7 +1901,7 @@ export default function AttendancePayrollPage() {
               </select>
 
               {/* Status Filter Pills */}
-              <div className="flex items-center gap-1 bg-black/30 p-1 rounded-xl border border-white/[0.08]">
+              <div className="flex items-center gap-1 surface-well p-1 rounded-xl">
                 {(
                   [
                     { id: "all", label: "All" },
@@ -1926,8 +1916,8 @@ export default function AttendancePayrollPage() {
                     onClick={() => setLogStatusFilter(st.id)}
                     className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
                       logStatusFilter === st.id
-                        ? "bg-emerald-500 text-black font-semibold"
-                        : "text-zinc-400 hover:text-white"
+                        ? "bg-[var(--accent-primary)] text-white font-semibold"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     }`}
                   >
                     {st.label}
@@ -1937,13 +1927,13 @@ export default function AttendancePayrollPage() {
 
               {/* Search */}
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Filter date or name..."
                   value={logSearch}
                   onChange={(e) => setLogSearch(e.target.value)}
-                  className="bg-black/40 border border-white/[0.12] rounded-xl pl-8 pr-3 py-1.5 text-xs text-white w-44"
+                  className="surface-well rounded-xl pl-8 pr-3 py-1.5 text-xs text-[var(--text-primary)] w-44"
                 />
               </div>
             </div>
@@ -1951,7 +1941,7 @@ export default function AttendancePayrollPage() {
 
           <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
             <table className="w-full text-xs text-left border-collapse">
-              <thead className="sticky top-0 bg-[#1c1e24] z-10 border-b border-white/[0.08] text-zinc-400 font-mono uppercase">
+              <thead className="sticky top-0 bg-[var(--bg-surface-2)] z-10 border-b border-[var(--border-subtle)] text-[var(--text-secondary)] font-mono uppercase">
                 <tr>
                   <th className="py-3 px-4">Tanggal</th>
                   <th className="py-3 px-3">Nama</th>
@@ -1963,69 +1953,69 @@ export default function AttendancePayrollPage() {
                   <th className="py-3 px-4">Punctuality & Audit Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.06]">
+              <tbody className="divide-y divide-[var(--border-subtle)]">
                 {filteredLogs.map((log) => (
                   <tr
                     key={log.attendance_id}
-                    className="hover:bg-white/[0.03] transition-colors"
+                    className="hover:bg-[var(--bg-surface-2)]/60 transition-colors"
                   >
-                    <td className="py-2.5 px-4 font-mono text-white">
+                    <td className="py-2.5 px-4 font-mono text-[var(--text-primary)]">
                       {log.work_date}
                     </td>
-                    <td className="py-2.5 px-3 font-semibold text-white">
+                    <td className="py-2.5 px-3 font-semibold text-[var(--text-primary)]">
                       {log.employee_name}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-zinc-400">
+                    <td className="py-2.5 px-3 font-mono text-[var(--text-secondary)]">
                       {log.shift_start_time}
                     </td>
                     <td className="py-2.5 px-3 font-mono">
                       <span
                         className={
                           log.is_late
-                            ? "text-rose-400 font-bold"
-                            : "text-emerald-300"
+                            ? "text-rose-600 dark:text-rose-400 font-bold"
+                            : "text-emerald-600 dark:text-emerald-400"
                         }
                       >
                         {log.clock_in}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-zinc-300">
+                    <td className="py-2.5 px-3 font-mono text-[var(--text-secondary)]">
                       {log.clock_out}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-zinc-300">
+                    <td className="py-2.5 px-3 font-mono text-[var(--text-secondary)]">
                       {log.raw_duration}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-right text-zinc-200">
+                    <td className="py-2.5 px-3 font-mono text-right text-[var(--text-primary)]">
                       {log.effective_hours > 0 ? `${log.effective_hours}h` : "-"}
                     </td>
                     <td className="py-2.5 px-4">
                       <div className="flex flex-wrap items-center gap-1.5">
                         {log.is_late ? (
-                          <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono text-[11px]">
+                          <span className="badge-rose px-2 py-0.5 rounded font-mono text-[11px]">
                             TELAT (+{log.late_minutes}m)
                           </span>
                         ) : log.anomaly_type === "closing_tap" ? (
-                          <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[11px]">
+                          <span className="badge-amber px-2 py-0.5 rounded font-mono text-[11px]">
                             Closing Tap ({log.raw_duration})
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-mono text-[11px]">
+                          <span className="badge-emerald px-2 py-0.5 rounded font-mono text-[11px]">
                             On Time (-{log.early_minutes}m)
                           </span>
                         )}
 
                         {log.anomaly_type === "overnight_rollover" && (
-                          <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono text-[11px]">
+                          <span className="badge-purple px-2 py-0.5 rounded font-mono text-[11px]">
                             Overnight Rollover (&gt;18h capped)
                           </span>
                         )}
                         {log.anomaly_type === "short_shift" && (
-                          <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-[11px]">
+                          <span className="badge-blue px-2 py-0.5 rounded font-mono text-[11px]">
                             Short / Half Shift
                           </span>
                         )}
                         {log.anomaly_type === "missing_clock_out" && (
-                          <span className="px-2 py-0.5 rounded bg-zinc-500/25 text-zinc-300 font-mono text-[11px]">
+                          <span className="badge-neutral px-2 py-0.5 rounded font-mono text-[11px]">
                             Active / Open Shift
                           </span>
                         )}

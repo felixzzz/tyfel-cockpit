@@ -1,10 +1,54 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { DuckDBInstance, DuckDBConnection } from '@duckdb/node-api';
 
-const DB_PATH =
-  process.env.DUCKDB_PATH ||
-  path.resolve(process.cwd(), '../data/fnb_analytics.duckdb');
+const BUNDLED_DB_PATH = path.join(process.cwd(), 'data', 'fnb_analytics.duckdb');
+const LEGACY_PARENT_DB_PATH = path.resolve(process.cwd(), '../data/fnb_analytics.duckdb');
+const TMP_DIR = process.env.VERCEL ? '/tmp' : os.tmpdir();
+const TMP_DB_PATH = path.join(TMP_DIR, 'fnb_analytics.duckdb');
+
+export function getSeedDbPath(): string | null {
+  if (fs.existsSync(BUNDLED_DB_PATH)) return BUNDLED_DB_PATH;
+  if (fs.existsSync(LEGACY_PARENT_DB_PATH)) return LEGACY_PARENT_DB_PATH;
+  return null;
+}
+
+export function resolveRuntimeDbPath(): string {
+  if (process.env.DUCKDB_PATH) {
+    return process.env.DUCKDB_PATH;
+  }
+  if (process.env.VERCEL) {
+    return TMP_DB_PATH;
+  }
+  if (fs.existsSync(BUNDLED_DB_PATH)) {
+    return BUNDLED_DB_PATH;
+  }
+  if (fs.existsSync(LEGACY_PARENT_DB_PATH)) {
+    return LEGACY_PARENT_DB_PATH;
+  }
+  return BUNDLED_DB_PATH;
+}
+
+export function getRawReportsReadDirs(): string[] {
+  const candidates = [
+    process.env.RAW_REPORTS_DIR,
+    path.join(TMP_DIR, 'reports', 'raw'),
+    path.join(process.cwd(), 'data', 'raw'),
+    path.resolve(process.cwd(), '../reports/raw'),
+  ].filter((d): d is string => Boolean(d));
+  return Array.from(new Set(candidates)).filter((d) => fs.existsSync(d));
+}
+
+export function getRawReportsWriteDir(): string {
+  if (process.env.RAW_REPORTS_DIR) return process.env.RAW_REPORTS_DIR;
+  if (process.env.VERCEL) {
+    return path.join(TMP_DIR, 'reports', 'raw');
+  }
+  const bundledRaw = path.join(process.cwd(), 'data', 'raw');
+  if (fs.existsSync(bundledRaw)) return bundledRaw;
+  return path.resolve(process.cwd(), '../reports/raw');
+}
 
 let dbInstance: DuckDBInstance | null = null;
 let dbInitPromise: Promise<DuckDBInstance> | null = null;
@@ -440,6 +484,55 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
   const conn = await db.connect();
   try {
     await conn.run(`
+      CREATE TABLE IF NOT EXISTS fact_orders (
+        dedup_id VARCHAR PRIMARY KEY,
+        order_id VARCHAR,
+        external_id VARCHAR,
+        short_id VARCHAR,
+        provider VARCHAR,
+        brand VARCHAR,
+        branch VARCHAR,
+        status VARCHAR,
+        gross_amount DOUBLE,
+        net_payout DOUBLE,
+        merchant_promo_burn DOUBLE,
+        provider_promo_burn DOUBLE,
+        delivery_fee DOUBLE,
+        net_sales DOUBLE,
+        net_realization_rate DOUBLE,
+        order_type VARCHAR,
+        meal_prep_time_raw VARCHAR,
+        prep_time_minutes DOUBLE,
+        kpt_sla_breach BOOLEAN,
+        kpt_red_alert BOOLEAN,
+        created_at TIMESTAMP,
+        delivered_at TIMESTAMP,
+        source_file VARCHAR,
+        ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await conn.run(`
+      CREATE TABLE IF NOT EXISTS fact_order_items (
+        dedup_id VARCHAR PRIMARY KEY,
+        order_id VARCHAR,
+        external_id VARCHAR,
+        provider VARCHAR,
+        brand VARCHAR,
+        branch VARCHAR,
+        item_name VARCHAR,
+        category VARCHAR,
+        item_qty DOUBLE,
+        item_price DOUBLE,
+        total_price DOUBLE,
+        created_at TIMESTAMP,
+        status VARCHAR,
+        source_file VARCHAR,
+        ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await conn.run(`
       CREATE TABLE IF NOT EXISTS dim_recipes (
         recipe_id VARCHAR PRIMARY KEY,
         brand VARCHAR NOT NULL,
@@ -518,76 +611,78 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
       );
     `);
 
-    const rawReportsDir =
-      process.env.RAW_REPORTS_DIR ||
-      path.resolve(process.cwd(), '../reports/raw');
+    const cancelCountRes = await conn.run(`SELECT count(*) FROM dim_order_cancellations`);
+    const cancelCountRows = await cancelCountRes.getRows();
+    const existingCancelCount = Number(cancelCountRows[0]?.[0] ?? 0);
 
-    if (fs.existsSync(rawReportsDir)) {
-      const klikitOrderFiles = fs
-        .readdirSync(rawReportsDir)
-        .filter((f) => f.startsWith('klikit_orders_') && f.endsWith('.csv'))
-        .sort();
+    if (existingCancelCount === 0) {
+      for (const rawReportsDir of getRawReportsReadDirs()) {
+        const klikitOrderFiles = fs
+          .readdirSync(rawReportsDir)
+          .filter((f) => f.startsWith('klikit_orders_') && f.endsWith('.csv'))
+          .sort();
 
-      for (const f of klikitOrderFiles) {
-        const fullCsvPath = path.join(rawReportsDir, f);
-        await conn.run(`
-          INSERT INTO dim_order_cancellations (
-            order_id, external_id, short_id, provider, brand, branch, status,
-            gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
-            cancellation_reason, cancelled_by, menu_items_summary, items_ordered,
-            meal_prep_time_raw, prep_time_minutes, created_at, source_file
-          )
-          SELECT
-            CAST("Order ID" AS VARCHAR) AS order_id,
-            CAST("External ID" AS VARCHAR) AS external_id,
-            CAST("Short ID" AS VARCHAR) AS short_id,
-            CASE
-              WHEN LOWER("Provider") LIKE '%grab%' THEN 'GrabFood'
-              WHEN LOWER("Provider") LIKE '%go%' THEN 'GoFood'
-              ELSE "Provider"
-            END AS provider,
-            trim(both '"' from "Brand") AS brand,
-            "Branch" AS branch,
-            UPPER(TRIM("Status")) AS status,
-            COALESCE(TRY_CAST("Gross Order Value" AS DOUBLE), 0) AS gross_amount,
-            COALESCE(TRY_CAST("Net Order Value" AS DOUBLE), 0) AS net_payout,
-            COALESCE(TRY_CAST("Merchant Discount" AS DOUBLE), 0) AS merchant_promo_burn,
-            COALESCE(TRY_CAST("Provider Discount" AS DOUBLE), 0) AS provider_promo_burn,
-            CASE
-              WHEN "Cancellation Reason" IS NULL OR TRIM("Cancellation Reason") IN ('', '-', 'N/A', 'null') THEN 'UNSPECIFIED_PLATFORM_CANCEL'
-              ELSE UPPER(TRIM("Cancellation Reason"))
-            END AS cancellation_reason,
-            CASE
-              WHEN "Cancelled By" IS NULL OR TRIM("Cancelled By") IN ('', '-', 'N/A', 'null') THEN 'unspecified'
-              ELSE LOWER(TRIM("Cancelled By"))
-            END AS cancelled_by,
-            trim(both '"' from COALESCE("Menu Items", '')) AS menu_items_summary,
-            COALESCE(TRY_CAST("Items Ordered" AS INTEGER), 1) AS items_ordered,
-            COALESCE("Meal Preparation Time", 'N/A') AS meal_prep_time_raw,
-            TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*min', 1) AS DOUBLE) +
-              COALESCE(TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*sec', 1) AS DOUBLE) / 60.0, 0.0) AS prep_time_minutes,
-            TRY_STRPTIME("Created At", '%B %d, %Y %I:%M:%S%p') AS created_at,
-            '${sqlEscape(f)}' AS source_file
-          FROM read_csv_auto('${sqlEscape(fullCsvPath)}', ignore_errors=true)
-          WHERE UPPER(TRIM("Status")) IN ('CANCELLED', 'CANCELED')
-          ON CONFLICT (order_id) DO UPDATE SET
-            provider = EXCLUDED.provider,
-            brand = EXCLUDED.brand,
-            branch = EXCLUDED.branch,
-            status = EXCLUDED.status,
-            gross_amount = EXCLUDED.gross_amount,
-            net_payout = EXCLUDED.net_payout,
-            merchant_promo_burn = EXCLUDED.merchant_promo_burn,
-            provider_promo_burn = EXCLUDED.provider_promo_burn,
-            cancellation_reason = EXCLUDED.cancellation_reason,
-            cancelled_by = EXCLUDED.cancelled_by,
-            menu_items_summary = EXCLUDED.menu_items_summary,
-            items_ordered = EXCLUDED.items_ordered,
-            meal_prep_time_raw = EXCLUDED.meal_prep_time_raw,
-            prep_time_minutes = EXCLUDED.prep_time_minutes,
-            created_at = EXCLUDED.created_at,
-            source_file = EXCLUDED.source_file;
-        `);
+        for (const f of klikitOrderFiles) {
+          const fullCsvPath = path.join(rawReportsDir, f);
+          await conn.run(`
+            INSERT INTO dim_order_cancellations (
+              order_id, external_id, short_id, provider, brand, branch, status,
+              gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
+              cancellation_reason, cancelled_by, menu_items_summary, items_ordered,
+              meal_prep_time_raw, prep_time_minutes, created_at, source_file
+            )
+            SELECT
+              CAST("Order ID" AS VARCHAR) AS order_id,
+              CAST("External ID" AS VARCHAR) AS external_id,
+              CAST("Short ID" AS VARCHAR) AS short_id,
+              CASE
+                WHEN LOWER("Provider") LIKE '%grab%' THEN 'GrabFood'
+                WHEN LOWER("Provider") LIKE '%go%' THEN 'GoFood'
+                ELSE "Provider"
+              END AS provider,
+              trim(both '"' from "Brand") AS brand,
+              "Branch" AS branch,
+              UPPER(TRIM("Status")) AS status,
+              COALESCE(TRY_CAST("Gross Order Value" AS DOUBLE), 0) AS gross_amount,
+              COALESCE(TRY_CAST("Net Order Value" AS DOUBLE), 0) AS net_payout,
+              COALESCE(TRY_CAST("Merchant Discount" AS DOUBLE), 0) AS merchant_promo_burn,
+              COALESCE(TRY_CAST("Provider Discount" AS DOUBLE), 0) AS provider_promo_burn,
+              CASE
+                WHEN "Cancellation Reason" IS NULL OR TRIM("Cancellation Reason") IN ('', '-', 'N/A', 'null') THEN 'UNSPECIFIED_PLATFORM_CANCEL'
+                ELSE UPPER(TRIM("Cancellation Reason"))
+              END AS cancellation_reason,
+              CASE
+                WHEN "Cancelled By" IS NULL OR TRIM("Cancelled By") IN ('', '-', 'N/A', 'null') THEN 'unspecified'
+                ELSE LOWER(TRIM("Cancelled By"))
+              END AS cancelled_by,
+              trim(both '"' from COALESCE("Menu Items", '')) AS menu_items_summary,
+              COALESCE(TRY_CAST("Items Ordered" AS INTEGER), 1) AS items_ordered,
+              COALESCE("Meal Preparation Time", 'N/A') AS meal_prep_time_raw,
+              TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*min', 1) AS DOUBLE) +
+                COALESCE(TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*sec', 1) AS DOUBLE) / 60.0, 0.0) AS prep_time_minutes,
+              TRY_STRPTIME("Created At", '%B %d, %Y %I:%M:%S%p') AS created_at,
+              '${sqlEscape(f)}' AS source_file
+            FROM read_csv_auto('${sqlEscape(fullCsvPath)}', ignore_errors=true)
+            WHERE UPPER(TRIM("Status")) IN ('CANCELLED', 'CANCELED')
+            ON CONFLICT (order_id) DO UPDATE SET
+              provider = EXCLUDED.provider,
+              brand = EXCLUDED.brand,
+              branch = EXCLUDED.branch,
+              status = EXCLUDED.status,
+              gross_amount = EXCLUDED.gross_amount,
+              net_payout = EXCLUDED.net_payout,
+              merchant_promo_burn = EXCLUDED.merchant_promo_burn,
+              provider_promo_burn = EXCLUDED.provider_promo_burn,
+              cancellation_reason = EXCLUDED.cancellation_reason,
+              cancelled_by = EXCLUDED.cancelled_by,
+              menu_items_summary = EXCLUDED.menu_items_summary,
+              items_ordered = EXCLUDED.items_ordered,
+              meal_prep_time_raw = EXCLUDED.meal_prep_time_raw,
+              prep_time_minutes = EXCLUDED.prep_time_minutes,
+              created_at = EXCLUDED.created_at,
+              source_file = EXCLUDED.source_file;
+          `);
+        }
       }
     }
 
@@ -603,16 +698,42 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
   }
 }
 
+function copySeedToTarget(seedPath: string, targetPath: string): void {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  const tmpCopyPath = `${targetPath}.${process.pid}.tmp`;
+  fs.copyFileSync(seedPath, tmpCopyPath);
+  try {
+    fs.renameSync(tmpCopyPath, targetPath);
+  } catch {
+    try {
+      fs.unlinkSync(tmpCopyPath);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export async function getDuckDB(): Promise<DuckDBInstance> {
   if (dbInstance) return dbInstance;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
+      let dbPath = resolveRuntimeDbPath();
+      const seedPath = getSeedDbPath();
+
+      if (!fs.existsSync(dbPath) && seedPath && seedPath !== dbPath) {
+        try {
+          copySeedToTarget(seedPath, dbPath);
+        } catch (copyErr) {
+          console.warn('[DuckDB Seed Copy] Failed copying seed DB to runtime path:', copyErr);
+        }
+      }
+
       let instance: DuckDBInstance;
       try {
-        instance = await DuckDBInstance.create(DB_PATH);
+        instance = await DuckDBInstance.create(dbPath);
       } catch (err) {
         const msg = String(err);
-        const walPath = `${DB_PATH}.wal`;
+        const walPath = `${dbPath}.wal`;
         if (msg.includes('replaying WAL file') && fs.existsSync(walPath)) {
           console.warn('[DuckDB WAL Recovery] Removing unreplayable WAL file and re-initializing:', walPath);
           try {
@@ -620,7 +741,22 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
           } catch {
             // ignore unlink errors
           }
-          instance = await DuckDBInstance.create(DB_PATH);
+          instance = await DuckDBInstance.create(dbPath);
+        } else if (
+          msg.includes('Conflicting lock') ||
+          msg.includes('Read-only file system') ||
+          msg.includes('Cannot open file') ||
+          msg.includes('EROFS') ||
+          msg.includes('EACCES')
+        ) {
+          const fallbackPath = path.join(TMP_DIR, `fnb_analytics_${process.pid}.duckdb`);
+          const sourceForFallback = seedPath || (fs.existsSync(dbPath) ? dbPath : null);
+          if (sourceForFallback && !fs.existsSync(fallbackPath)) {
+            copySeedToTarget(sourceForFallback, fallbackPath);
+          }
+          console.warn('[DuckDB Fallback] Using isolated writable /tmp copy:', fallbackPath);
+          dbPath = fallbackPath;
+          instance = await DuckDBInstance.create(fallbackPath);
         } else {
           dbInitPromise = null;
           throw err;

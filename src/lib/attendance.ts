@@ -1,11 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { DuckDBConnection, DuckDBInstance } from '@duckdb/node-api';
-import { getDuckDB, runQuery } from './duckdb';
-
-const RAW_DIR =
-  process.env.RAW_REPORTS_DIR ||
-  path.resolve(process.cwd(), '../reports/raw');
+import { getDuckDB, getRawReportsReadDirs, runQuery } from './duckdb';
 
 export interface EmployeeMaster {
   employee_name: string;
@@ -605,14 +601,16 @@ export async function initializeAttendanceSchemaAndSeed(
     const countRows = await countRes.getRows();
     const existingCount = Number(countRows[0]?.[0] ?? 0);
 
-    if (existingCount === 0 && fs.existsSync(RAW_DIR)) {
-      const files = fs
-        .readdirSync(RAW_DIR)
-        .filter((f) => f.startsWith('majoo_attendance_') && f.endsWith('.csv'));
-      for (const f of files) {
-        const fullPath = path.join(RAW_DIR, f);
-        const content = fs.readFileSync(fullPath, 'utf-8');
-        await upsertAttendanceCsvToConn(conn, content, f);
+    if (existingCount === 0) {
+      for (const rawDir of getRawReportsReadDirs()) {
+        const files = fs
+          .readdirSync(rawDir)
+          .filter((f) => f.startsWith('majoo_attendance_') && f.endsWith('.csv'));
+        for (const f of files) {
+          const fullPath = path.join(rawDir, f);
+          const content = fs.readFileSync(fullPath, 'utf-8');
+          await upsertAttendanceCsvToConn(conn, content, f);
+        }
       }
     }
 

@@ -1,21 +1,31 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Space_Grotesk, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import { ThemeProvider } from '@/components/ThemeProvider';
+import { AppShell } from '@/components/AppShell';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+const fontDisplay = Space_Grotesk({
+  variable: '--font-space-grotesk',
   subsets: ['latin'],
+  weight: ['500', '600', '700'],
 });
 
-const geistMono = Geist_Mono({
-  variable: '--font-geist-mono',
+const fontSans = Plus_Jakarta_Sans({
+  variable: '--font-jakarta-sans',
   subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+});
+
+const fontMono = JetBrains_Mono({
+  variable: '--font-jetbrains-mono',
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
 });
 
 export const metadata: Metadata = {
-  title: 'FnB Operations & Financial Analytics Portal',
+  title: 'MAUS Atelier · FnB Operations & Culinary Economics',
   description:
-    'Consolidated executive reporting, multi-brand unit economics & kitchen throughput across Greenville & Kemang',
+    'Executive multi-brand unit economics, kitchen SLA throughput & payroll command across Greenville & Kemang',
 };
 
 export default function RootLayout({
@@ -24,13 +34,29 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" data-theme="light" className="light" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var mode = localStorage.getItem('fnb-ops-theme-mode');
+                if (mode === 'dark' || mode === 'light') {
+                  document.documentElement.setAttribute('data-theme', mode);
+                  document.documentElement.classList.remove('light', 'dark');
+                  document.documentElement.classList.add(mode);
+                }
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#121316] text-[#f4f4f6] selection:bg-emerald-500/25 selection:text-emerald-200 min-h-screen`}
+        className={`${fontDisplay.variable} ${fontSans.variable} ${fontMono.variable} antialiased min-h-screen`}
       >
-        <div className="relative z-10">
-          {children}
-        </div>
+        <ThemeProvider>
+          <AppShell>{children}</AppShell>
+        </ThemeProvider>
       </body>
     </html>
   );
