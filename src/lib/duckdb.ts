@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { DuckDBInstance, DuckDBConnection } from '@duckdb/node-api';
+import type { DuckDBInstance, DuckDBConnection } from '@duckdb/node-api';
 
 const BUNDLED_DB_PATH = path.join(process.cwd(), 'data', 'fnb_analytics.duckdb');
 const LEGACY_PARENT_DB_PATH = path.resolve(process.cwd(), '../data/fnb_analytics.duckdb');
@@ -549,43 +549,51 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
       );
     `);
 
-    const valuesSql = MASTER_RECIPES.map(
-      (r) => `(
-        '${sqlEscape(r.recipe_id)}',
-        '${sqlEscape(r.brand)}',
-        '${sqlEscape(r.item_name)}',
-        '${sqlEscape(r.canonical_name)}',
-        '${sqlEscape(r.category)}',
-        '${sqlEscape(r.bom_summary)}',
-        ${r.raw_food_cost},
-        ${r.packaging_dine_in},
-        ${r.packaging_delivery},
-        ${r.target_food_cost_pct},
-        ${r.is_hero_bom ? 'TRUE' : 'FALSE'},
-        CURRENT_TIMESTAMP
-      )`
-    ).join(',\n');
+    const recipeCountRes = await conn.run(`SELECT count(*) FROM dim_recipes`);
+    const recipeCountRows = await recipeCountRes.getRows();
+    const existingRecipeCount = Number(recipeCountRows[0]?.[0] ?? 0);
+    let didWrite = false;
 
-    await conn.run(`
-      INSERT INTO dim_recipes (
-        recipe_id, brand, item_name, canonical_name, category, bom_summary,
-        raw_food_cost, packaging_dine_in, packaging_delivery, target_food_cost_pct,
-        is_hero_bom, updated_at
-      )
-      VALUES ${valuesSql}
-      ON CONFLICT (recipe_id) DO UPDATE SET
-        brand = EXCLUDED.brand,
-        item_name = EXCLUDED.item_name,
-        canonical_name = EXCLUDED.canonical_name,
-        category = EXCLUDED.category,
-        bom_summary = EXCLUDED.bom_summary,
-        raw_food_cost = EXCLUDED.raw_food_cost,
-        packaging_dine_in = EXCLUDED.packaging_dine_in,
-        packaging_delivery = EXCLUDED.packaging_delivery,
-        target_food_cost_pct = EXCLUDED.target_food_cost_pct,
-        is_hero_bom = EXCLUDED.is_hero_bom,
-        updated_at = EXCLUDED.updated_at;
-    `);
+    if (existingRecipeCount < MASTER_RECIPES.length) {
+      const valuesSql = MASTER_RECIPES.map(
+        (r) => `(
+          '${sqlEscape(r.recipe_id)}',
+          '${sqlEscape(r.brand)}',
+          '${sqlEscape(r.item_name)}',
+          '${sqlEscape(r.canonical_name)}',
+          '${sqlEscape(r.category)}',
+          '${sqlEscape(r.bom_summary)}',
+          ${r.raw_food_cost},
+          ${r.packaging_dine_in},
+          ${r.packaging_delivery},
+          ${r.target_food_cost_pct},
+          ${r.is_hero_bom ? 'TRUE' : 'FALSE'},
+          CURRENT_TIMESTAMP
+        )`
+      ).join(',\n');
+
+      await conn.run(`
+        INSERT INTO dim_recipes (
+          recipe_id, brand, item_name, canonical_name, category, bom_summary,
+          raw_food_cost, packaging_dine_in, packaging_delivery, target_food_cost_pct,
+          is_hero_bom, updated_at
+        )
+        VALUES ${valuesSql}
+        ON CONFLICT (recipe_id) DO UPDATE SET
+          brand = EXCLUDED.brand,
+          item_name = EXCLUDED.item_name,
+          canonical_name = EXCLUDED.canonical_name,
+          category = EXCLUDED.category,
+          bom_summary = EXCLUDED.bom_summary,
+          raw_food_cost = EXCLUDED.raw_food_cost,
+          packaging_dine_in = EXCLUDED.packaging_dine_in,
+          packaging_delivery = EXCLUDED.packaging_delivery,
+          target_food_cost_pct = EXCLUDED.target_food_cost_pct,
+          is_hero_bom = EXCLUDED.is_hero_bom,
+          updated_at = EXCLUDED.updated_at;
+      `);
+      didWrite = true;
+    }
 
     await conn.run(`
       CREATE TABLE IF NOT EXISTS dim_order_cancellations (
@@ -682,11 +690,14 @@ async function initializeSchemaAndSeed(db: DuckDBInstance): Promise<void> {
               created_at = EXCLUDED.created_at,
               source_file = EXCLUDED.source_file;
           `);
+          didWrite = true;
         }
       }
     }
 
-    await conn.run(`CHECKPOINT;`);
+    if (didWrite) {
+      await conn.run(`CHECKPOINT;`);
+    }
   } catch (err) {
     console.warn('[DuckDB Seed Notice] Could not write dim_recipes / dim_order_cancellations on init:', err);
   } finally {
@@ -717,6 +728,7 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
   if (dbInstance) return dbInstance;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
+      const { DuckDBInstance } = await import('@duckdb/node-api');
       let dbPath = resolveRuntimeDbPath();
       const seedPath = getSeedDbPath();
 
@@ -729,6 +741,7 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
       }
 
       let instance: DuckDBInstance;
+      let isReadOnly = false;
       try {
         instance = await DuckDBInstance.create(dbPath);
       } catch (err) {
@@ -749,22 +762,31 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
           msg.includes('EROFS') ||
           msg.includes('EACCES')
         ) {
-          const fallbackPath = path.join(TMP_DIR, `fnb_analytics_${process.pid}.duckdb`);
-          const sourceForFallback = seedPath || (fs.existsSync(dbPath) ? dbPath : null);
-          if (sourceForFallback && !fs.existsSync(fallbackPath)) {
-            copySeedToTarget(sourceForFallback, fallbackPath);
+          try {
+            const fallbackPath = path.join(TMP_DIR, `fnb_analytics_${process.pid}.duckdb`);
+            const sourceForFallback = seedPath || (fs.existsSync(dbPath) ? dbPath : null);
+            if (sourceForFallback && !fs.existsSync(fallbackPath)) {
+              copySeedToTarget(sourceForFallback, fallbackPath);
+            }
+            console.warn('[DuckDB Fallback] Using isolated writable /tmp copy:', fallbackPath);
+            dbPath = fallbackPath;
+            instance = await DuckDBInstance.create(fallbackPath);
+          } catch {
+            const roSource = seedPath || dbPath;
+            console.warn('[DuckDB Read-Only Fallback] Opening seed DB in READ_ONLY mode:', roSource);
+            isReadOnly = true;
+            instance = await DuckDBInstance.create(roSource, { access_mode: 'READ_ONLY' });
           }
-          console.warn('[DuckDB Fallback] Using isolated writable /tmp copy:', fallbackPath);
-          dbPath = fallbackPath;
-          instance = await DuckDBInstance.create(fallbackPath);
         } else {
           dbInitPromise = null;
           throw err;
         }
       }
-      await initializeSchemaAndSeed(instance);
-      const { initializeAttendanceSchemaAndSeed } = await import('./attendance');
-      await initializeAttendanceSchemaAndSeed(instance);
+      if (!isReadOnly) {
+        await initializeSchemaAndSeed(instance);
+        const { initializeAttendanceSchemaAndSeed } = await import('./attendance');
+        await initializeAttendanceSchemaAndSeed(instance);
+      }
       dbInstance = instance;
       return instance;
     })();

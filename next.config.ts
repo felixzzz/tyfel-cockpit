@@ -4,7 +4,10 @@ import path from "path";
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.resolve(__dirname),
   outputFileTracingIncludes: {
-    "/**": ["./data/**/*"],
+    "/**": [
+      "./data/**/*",
+      "./node_modules/@duckdb/**/*",
+    ],
   },
   serverExternalPackages: [
     "@duckdb/node-api",

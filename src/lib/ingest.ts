@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { DuckDBConnection } from "@duckdb/node-api";
+import type { DuckDBConnection } from "@duckdb/node-api";
 import { getDuckDB, getRawReportsReadDirs, getRawReportsWriteDir } from "./duckdb";
 
 export type DetectedFileType = "majoo" | "majoo_attendance" | "klikit_orders" | "klikit_items" | "unknown";

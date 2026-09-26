@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { DuckDBConnection, DuckDBInstance } from '@duckdb/node-api';
+import type { DuckDBConnection, DuckDBInstance } from '@duckdb/node-api';
 import { getDuckDB, getRawReportsReadDirs, runQuery } from './duckdb';
 
 export interface EmployeeMaster {
@@ -612,9 +612,8 @@ export async function initializeAttendanceSchemaAndSeed(
           await upsertAttendanceCsvToConn(conn, content, f);
         }
       }
+      await conn.run(`CHECKPOINT;`);
     }
-
-    await conn.run(`CHECKPOINT;`);
   } catch (err) {
     console.warn('[DuckDB Attendance Seed Notice]', err);
   } finally {
