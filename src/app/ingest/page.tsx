@@ -21,7 +21,7 @@ import {
 interface StagedFile {
   file: File;
   id: string;
-  detectedType: "majoo" | "klikit_orders" | "klikit_items" | "unknown";
+  detectedType: "majoo" | "majoo_attendance" | "klikit_orders" | "klikit_items" | "unknown";
   detectedLabel: string;
   previewRows: number;
 }
@@ -98,11 +98,20 @@ function formatBytes(bytes: number): string {
 }
 
 function detectClientSignature(contentSample: string, fileName: string): {
-  type: "majoo" | "klikit_orders" | "klikit_items" | "unknown";
+  type: "majoo" | "majoo_attendance" | "klikit_orders" | "klikit_items" | "unknown";
   label: string;
 } {
   const sample = contentSample.slice(0, 3000);
   const lowerName = fileName.toLowerCase();
+
+  if (
+    sample.includes("Laporan Absensi") ||
+    (sample.includes("Jam Masuk") && sample.includes("Jam Pulang")) ||
+    lowerName.includes("attendance") ||
+    lowerName.includes("absensi")
+  ) {
+    return { type: "majoo_attendance", label: "Majoo Attendance (Laporan Absensi Karyawan)" };
+  }
 
   if (
     sample.includes("DETAIL PENJUALAN") ||

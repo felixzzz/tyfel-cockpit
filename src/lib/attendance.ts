@@ -493,8 +493,7 @@ export async function initializeAttendanceSchemaAndSeed(
         ${e.daily_rate},
         ${e.late_penalty_rate},
         ${e.no_late_bonus},
-        ${e.is_active ? 'TRUE' : 'FALSE'},
-        CURRENT_TIMESTAMP
+        ${e.is_active ? 'TRUE' : 'FALSE'}
       )`
     ).join(',\n');
 
@@ -502,7 +501,7 @@ export async function initializeAttendanceSchemaAndSeed(
       INSERT INTO dim_employees (
         employee_name, full_name, role, outlet, join_date_label,
         shift_start_time, basic_salary, daily_rate, late_penalty_rate,
-        no_late_bonus, is_active, updated_at
+        no_late_bonus, is_active
       )
       VALUES ${empValues}
       ON CONFLICT (employee_name) DO NOTHING;
@@ -513,12 +512,12 @@ export async function initializeAttendanceSchemaAndSeed(
       INSERT INTO payroll_period_adjustments (
         period_key, employee_name, daily_count_override, late_count_override,
         bonus_override, custom_desc, custom_qty, custom_unit_value,
-        kasbon_qty, kasbon_unit_value, notes, updated_at
+        kasbon_qty, kasbon_unit_value, notes
       )
       VALUES (
         '2026-08-16_to_2026-09-15', 'Aji', 27, NULL,
         NULL, '', 0, 0,
-        1, 900000, 'Salary_8 reference payslip (27 full days + Rp 900,000 Kasbon)', CURRENT_TIMESTAMP
+        1, 900000, 'Salary_8 reference payslip (27 full days + Rp 900,000 Kasbon)'
       )
       ON CONFLICT (period_key, employee_name) DO NOTHING;
     `);
@@ -581,11 +580,11 @@ export async function upsertAttendanceCsvToConn(
       INSERT INTO dim_employees (
         employee_name, full_name, role, outlet, join_date_label,
         shift_start_time, basic_salary, daily_rate, late_penalty_rate,
-        no_late_bonus, is_active, updated_at
+        no_late_bonus, is_active
       )
       VALUES (
         '${sqlEsc(name)}', '${sqlEsc(name)}', 'Staff', 'Tyfel Coffee',
-        'Join 2025', '07:30', 800000, 85000, 20000, 85000, TRUE, CURRENT_TIMESTAMP
+        'Join 2025', '07:30', 800000, 85000, 20000, 85000, TRUE
       )
       ON CONFLICT (employee_name) DO NOTHING;
     `);
@@ -617,8 +616,7 @@ export async function upsertAttendanceCsvToConn(
           '${sqlEsc(r.anomaly_type)}',
           '${sqlEsc(r.status)}',
           '${sqlEsc(r.notes)}',
-          '${sqlEsc(r.source_file)}',
-          CURRENT_TIMESTAMP
+          '${sqlEsc(r.source_file)}'
         )`
       )
       .join(',\n');
@@ -627,7 +625,7 @@ export async function upsertAttendanceCsvToConn(
       INSERT INTO fact_attendance (
         attendance_id, work_date, employee_name, outlet, clock_in, clock_out,
         raw_duration, duration_seconds, effective_hours, anomaly_type,
-        status, notes, source_file, updated_at
+        status, notes, source_file
       )
       VALUES ${valuesSql}
       ON CONFLICT (attendance_id) DO UPDATE SET
@@ -639,8 +637,7 @@ export async function upsertAttendanceCsvToConn(
         anomaly_type = EXCLUDED.anomaly_type,
         status = EXCLUDED.status,
         notes = EXCLUDED.notes,
-        source_file = EXCLUDED.source_file,
-        updated_at = EXCLUDED.updated_at;
+        source_file = EXCLUDED.source_file;
     `);
   }
 
@@ -1171,7 +1168,6 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         sets.push(`late_penalty_rate = ${Number(payload.late_penalty_rate)}`);
       if (payload.no_late_bonus !== undefined)
         sets.push(`no_late_bonus = ${Number(payload.no_late_bonus)}`);
-      sets.push(`updated_at = CURRENT_TIMESTAMP`);
 
       await conn.run(`
         UPDATE dim_employees
@@ -1195,7 +1191,7 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
       INSERT INTO payroll_period_adjustments (
         period_key, employee_name, daily_count_override, late_count_override,
         bonus_override, custom_desc, custom_qty, custom_unit_value,
-        kasbon_qty, kasbon_unit_value, notes, updated_at
+        kasbon_qty, kasbon_unit_value, notes
       )
       VALUES (
         '${sqlEsc(payload.period_key)}',
@@ -1208,8 +1204,7 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         ${Number(payload.custom_unit_value || 0)},
         ${Number(payload.kasbon_qty || 0)},
         ${Number(payload.kasbon_unit_value || 0)},
-        '${sqlEsc(payload.notes || '')}',
-        CURRENT_TIMESTAMP
+        '${sqlEsc(payload.notes || '')}'
       )
       ON CONFLICT (period_key, employee_name) DO UPDATE SET
         daily_count_override = EXCLUDED.daily_count_override,
@@ -1219,8 +1214,7 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         custom_unit_value = EXCLUDED.custom_unit_value,
         kasbon_qty = EXCLUDED.kasbon_qty,
         kasbon_unit_value = EXCLUDED.kasbon_unit_value,
-        notes = EXCLUDED.notes,
-        updated_at = EXCLUDED.updated_at;
+        notes = EXCLUDED.notes;
     `);
   } finally {
     try {

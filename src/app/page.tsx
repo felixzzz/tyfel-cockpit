@@ -34,6 +34,7 @@ import {
   ChevronRight,
   Building2,
   UtensilsCrossed,
+  Users,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -117,6 +118,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
         {/* Engine Badges & Dropzone Action */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <Link
+            href="/attendance"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-[#5c7c5c] hover:bg-[#6d916d] text-[#f5f2dc] border border-[#7fa37f]/40 transition-colors cursor-pointer shadow-sm"
+          >
+            <Users className="w-4 h-4 stroke-[2.2]" />
+            <span>Attendance & Payslips (16–15)</span>
+          </Link>
           <Link
             href="/ingest"
             className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-black transition-colors cursor-pointer"

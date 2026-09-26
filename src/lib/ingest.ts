@@ -7,7 +7,7 @@ const RAW_DIR =
   process.env.RAW_REPORTS_DIR ||
   path.resolve(process.cwd(), "../reports/raw");
 
-export type DetectedFileType = "majoo" | "klikit_orders" | "klikit_items" | "unknown";
+export type DetectedFileType = "majoo" | "majoo_attendance" | "klikit_orders" | "klikit_items" | "unknown";
 
 export interface IngestSummary {
   success: boolean;
@@ -44,10 +44,20 @@ const MONTHS: Record<string, string> = {
 };
 
 export function detectFileType(contentSample: string, fileName?: string): DetectedFileType {
-  const lines = contentSample.split(/\r?\n/).slice(0, 30);
+  const lines = contentSample.split(/\r?\n/).slice(0, 35);
   const sampleText = lines.join("\n");
   const firstLine = lines[0] || "";
   const lowerName = (fileName || "").toLowerCase();
+
+  // Majoo Attendance Report: Laporan Absensi or Tanggal,Nama,Outlet,Jam Masuk,Jam Pulang
+  if (
+    sampleText.includes("Laporan Absensi") ||
+    (sampleText.includes("Jam Masuk") && sampleText.includes("Jam Pulang")) ||
+    lowerName.includes("attendance") ||
+    lowerName.includes("absensi")
+  ) {
+    return "majoo_attendance";
+  }
 
   // Majoo POS: Semicolon delimited or contains DETAIL PENJUALAN / No Transaksi
   if (
@@ -89,6 +99,8 @@ export function getFileTypeLabel(type: DetectedFileType): string {
   switch (type) {
     case "majoo":
       return "Majoo POS (Greenville Dine-in / Takeaway)";
+    case "majoo_attendance":
+      return "Majoo Attendance (Laporan Absensi Karyawan)";
     case "klikit_orders":
       return "Klikit Orders (GrabFood & GoFood Delivery)";
     case "klikit_items":
@@ -102,7 +114,16 @@ export function extractDateRange(content: string, fileType: DetectedFileType): {
   const lines = content.split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return { minDate: null, maxDate: null };
 
-  if (fileType === "majoo") {
+  if (fileType === "majoo_attendance") {
+    const dates: string[] = [];
+    for (const line of lines) {
+      const m = line.match(/^(\d{4}-\d{2}-\d{2}),/);
+      if (m) dates.push(m[1]);
+    }
+    if (dates.length === 0) return { minDate: null, maxDate: null };
+    dates.sort();
+    return { minDate: dates[0], maxDate: dates[dates.length - 1] };
+  } else if (fileType === "majoo") {
     const regex = /(\d{2})-(\d{2})-(\d{4})/;
     const dates: string[] = [];
     for (const line of lines) {
@@ -148,6 +169,9 @@ export function getCanonicalFileName(
   }
   if (fileType === "klikit_items") {
     return minDate && maxDate ? `klikit_items_${minDate}_to_${maxDate}.csv` : `klikit_items_${Date.now()}.csv`;
+  }
+  if (fileType === "majoo_attendance") {
+    return minDate && maxDate ? `majoo_attendance_${minDate}_to_${maxDate}.csv` : `majoo_attendance_${Date.now()}.csv`;
   }
   if (fileType === "majoo") {
     return minDate && maxDate ? `majoo_greenville_${minDate}_to_${maxDate}.csv` : `majoo_greenville_${Date.now()}.csv`;
@@ -275,7 +299,31 @@ export async function processUploadedFile(
   try {
     conn = await db.connect();
 
-    if (fileType === "majoo") {
+    if (fileType === "majoo_attendance") {
+      const { upsertAttendanceCsvToConn } = await import("./attendance");
+      const res = await upsertAttendanceCsvToConn(conn, contentStr, canonicalName);
+      const msg =
+        res.newInserted === 0 && res.totalParsed > 0
+          ? `Saved as "${canonicalName}". All ${res.totalParsed} attendance logs were already present in DuckDB (updated in place).`
+          : `Saved as "${canonicalName}". Ingested ${res.newInserted} new attendance logs (${res.updatedCount} updated) across ${res.minDate || "?"} to ${res.maxDate || "?"}.`;
+      return {
+        success: true,
+        fileType: "majoo_attendance",
+        fileTypeLabel: getFileTypeLabel("majoo_attendance"),
+        fileName: canonicalName,
+        originalFileName: fileName,
+        fileSizeBytes: contentBuffer.length,
+        ordersProcessed: res.totalParsed,
+        newOrdersInserted: res.newInserted,
+        duplicatesHandled: res.updatedCount,
+        itemsProcessed: 0,
+        newItemsInserted: 0,
+        grossAmount: 0,
+        minDate: res.minDate,
+        maxDate: res.maxDate,
+        message: msg,
+      };
+    } else if (fileType === "majoo") {
       return await ingestMajooPOS(conn, targetFilePath, canonicalName, fileName, contentBuffer.length);
     } else if (fileType === "klikit_orders") {
       return await ingestKlikitOrders(conn, targetFilePath, canonicalName, fileName, contentBuffer.length);
