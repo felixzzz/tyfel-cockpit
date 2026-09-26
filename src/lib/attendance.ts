@@ -735,8 +735,8 @@ function timeToMinutes(hhmm: string): number | null {
 /**
  * Generates chronological 16th-to-15th payroll periods ordered by Year and Month.
  * For (year, month):
- *   start_date = YYYY-MM-16
- *   end_date   = nextMonth YYYY-MM-15
+ *   start_date = 16th of previous month (e.g. for January YYYY -> 16 Dec YYYY-1)
+ *   end_date   = 15th of current month  (e.g. for January YYYY -> 15 Jan YYYY)
  * Only completed previous periods (end_date <= referenceDate) are selectable!
  */
 export function buildChronologicalPayrollCycles(
@@ -750,18 +750,18 @@ export function buildChronologicalPayrollCycles(
 
   for (const year of years) {
     for (let month = 1; month <= 12; month++) {
+      const prevYear = month === 1 ? year - 1 : year;
+      const prevMonth = month === 1 ? 12 : month - 1;
+      const prevMm = String(prevMonth).padStart(2, '0');
       const mm = String(month).padStart(2, '0');
-      const startDate = `${year}-${mm}-16`;
 
-      const nextYear = month === 12 ? year + 1 : year;
-      const nextMonth = month === 12 ? 1 : month + 1;
-      const nextMm = String(nextMonth).padStart(2, '0');
-      const endDate = `${nextYear}-${nextMm}-15`;
+      const startDate = `${prevYear}-${prevMm}-16`;
+      const endDate = `${year}-${mm}-15`;
 
       const periodKey = `${startDate}_to_${endDate}`;
+      const prevMonthShort = MONTH_SHORTS[prevMonth - 1];
       const monthName = MONTH_NAMES[month - 1];
       const monthShort = MONTH_SHORTS[month - 1];
-      const nextMonthShort = MONTH_SHORTS[nextMonth - 1];
 
       // A period is a completed previous period if its endDate <= referenceDateStr
       const isCompleted = endDate <= referenceDateStr;
@@ -775,13 +775,13 @@ export function buildChronologicalPayrollCycles(
       const logCount = logCountsByPeriod.get(periodKey) || 0;
       const overrideCount = overrideCountsByPeriod.get(periodKey) || 0;
 
-      let badge = `16 ${monthShort} – 15 ${nextMonthShort}`;
+      let badge = `16 ${prevMonthShort} – 15 ${monthShort}`;
       if (isFuture) {
         badge = 'Future (Locked)';
       } else if (isCurrentRunning) {
-        badge = `In Progress (Closes 15 ${nextMonthShort})`;
+        badge = `In Progress (Closes 15 ${monthShort})`;
       } else if (logCount > 0) {
-        badge = `${logCount} logs · 16 ${monthShort}–15 ${nextMonthShort}`;
+        badge = `${logCount} logs · 16 ${prevMonthShort}–15 ${monthShort}`;
       }
 
       cycles.push({
@@ -790,7 +790,7 @@ export function buildChronologicalPayrollCycles(
         month,
         month_name: monthName,
         month_short: monthShort,
-        label: `${year} · ${mm} ${monthName} (16 ${monthShort} ${year} – 15 ${nextMonthShort} ${nextYear})`,
+        label: `${year} · ${mm} ${monthName} (16 ${prevMonthShort} ${prevYear} – 15 ${monthShort} ${year})`,
         short_label: `${monthShort} ${year}`,
         salary_code: `Salary_${month}`,
         start_date: startDate,
@@ -806,7 +806,7 @@ export function buildChronologicalPayrollCycles(
     }
   }
 
-  // Default is the most recent completed previous period (e.g., 2026-08: 16 Aug - 15 Sep 2026)
+  // Default is the most recent completed previous period (e.g., 2026-09: 16 Aug - 15 Sep 2026)
   const selectableCycles = cycles.filter((c) => c.is_selectable);
   const latestWithLogs = [...selectableCycles]
     .reverse()
