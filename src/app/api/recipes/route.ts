@@ -4,6 +4,8 @@ import {
   getCatalogRecipesAndUnmappedSkus,
   upsertRecipeBom,
   deleteOrResetRecipeBom,
+  batchAutoMapUnmappedSkus,
+  resetAutoMappedRecipeBoms,
   UpsertRecipeBomInput,
 } from '@/lib/queries';
 
@@ -24,7 +26,28 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Partial<UpsertRecipeBomInput>;
+    const body = (await req.json()) as Partial<UpsertRecipeBomInput> & {
+      action?: string;
+      brand?: string;
+    };
+
+    if (body.action === 'auto_map_unmapped') {
+      const brandFilter = body.brand && body.brand !== 'all' ? String(body.brand) : undefined;
+      const batchRes = await batchAutoMapUnmappedSkus(brandFilter);
+
+      revalidatePath('/');
+      revalidatePath('/brands/[brandId]', 'page');
+
+      return NextResponse.json({
+        ok: true,
+        ...batchRes,
+        message:
+          batchRes.mappedCount > 0
+            ? `Auto-mapped ${batchRes.mappedCount} unmapped SKUs (${batchRes.totalUnitsCovered.toLocaleString()} units covered) across ${batchRes.brandsAffected.length} brand(s).`
+            : 'All SKUs in scope already have explicit recipe BOM mappings.',
+      });
+    }
+
     if (!body.brand || !body.item_name) {
       return NextResponse.json(
         { ok: false, error: 'brand and item_name are required' },
@@ -66,6 +89,20 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const mode = searchParams.get('mode');
+    const brand = searchParams.get('brand') || undefined;
+
+    if (mode === 'auto_mapped') {
+      const res = await resetAutoMappedRecipeBoms(brand);
+      revalidatePath('/');
+      revalidatePath('/brands/[brandId]', 'page');
+      return NextResponse.json({
+        ok: true,
+        ...res,
+        message: `Cleared ${res.deletedCount} auto-mapped SKU BOM(s).`,
+      });
+    }
+
     const recipeId = searchParams.get('recipe_id');
     if (!recipeId) {
       return NextResponse.json(
@@ -93,3 +130,4 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
+

@@ -134,6 +134,12 @@ export function DashboardWorkspace({
   const [bomModalTarget, setBomModalTarget] =
     useState<InitialRecipeBomTarget | null>(null);
 
+  // Store P&L "What-If" Profit Lever Simulator State
+  const [pnlSimOpen, setPnlSimOpen] = useState<boolean>(false);
+  const [pnlPriceNudgeRp, setPnlPriceNudgeRp] = useState<number>(0);
+  const [pnlPromoCapPct, setPnlPromoCapPct] = useState<number>(0);
+  const [pnlCogsSavePct, setPnlCogsSavePct] = useState<number>(0);
+
   const showOverview = activeTab === "overview" || activeTab === "all";
   const showEconomics = activeTab === "economics" || activeTab === "all";
   const showSla = activeTab === "sla" || activeTab === "all";
@@ -772,13 +778,28 @@ export function DashboardWorkspace({
               </p>
             </div>
 
-            <Link
-              href="/attendance"
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold surface-well hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-default)] shrink-0 self-start md:self-auto"
-            >
-              <Users className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Inspect Staff Shifts &amp; Payslips →</span>
-            </Link>
+            <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+              <button
+                type="button"
+                onClick={() => setPnlSimOpen((v) => !v)}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold border transition-colors cursor-pointer ${
+                  pnlSimOpen || pnlPriceNudgeRp > 0 || pnlPromoCapPct > 0 || pnlCogsSavePct > 0
+                    ? "badge-emerald border-emerald-500/40"
+                    : "surface-well hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border-[var(--border-default)]"
+                }`}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>{pnlSimOpen ? "Hide P&L Simulator" : "Simulate P&L Levers"}</span>
+              </button>
+
+              <Link
+                href="/attendance"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold surface-well hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-default)] shrink-0"
+              >
+                <Users className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Inspect Staff Shifts &amp; Payslips →</span>
+              </Link>
+            </div>
           </div>
 
           {/* 5-Stage P&L Waterfall Cards */}
@@ -915,6 +936,150 @@ export function DashboardWorkspace({
               </div>
             </div>
           </div>
+
+          {/* Interactive Store P&L "What-If" Profit Lever Simulator */}
+          {pnlSimOpen && (() => {
+            const totalOrdersCount = Math.max(1, summary.total_orders || 1);
+            const priceGainNetRp = Math.round(totalOrdersCount * pnlPriceNudgeRp * 0.82); // ~82% net realization after commission
+            const promoSavedRp = Math.round(primeCost.merchantPromoBurn * (pnlPromoCapPct / 100));
+            const cogsSavedRp = Math.round(primeCost.totalCogs * (pnlCogsSavePct / 100));
+            const totalNetUnlockRp = priceGainNetRp + promoSavedRp + cogsSavedRp;
+
+            const simNetRev = primeCost.netRevenue + priceGainNetRp + promoSavedRp;
+            const simCogs = Math.max(0, primeCost.totalCogs - cogsSavedRp);
+            const simPrimeCost = simCogs + (primeCost.laborIncluded ? primeCost.netLaborCost : 0);
+            const simNetContribRp = simNetRev - simPrimeCost;
+            const simPrimeCostPct =
+              simNetRev > 0 ? Number(((simPrimeCost / simNetRev) * 100).toFixed(1)) : 0;
+            const simNetContribPct =
+              simNetRev > 0 ? Number(((simNetContribRp / simNetRev) * 100).toFixed(1)) : 0;
+
+            return (
+              <div className="rounded-xl p-4 surface-well border border-emerald-500/30 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded badge-emerald font-semibold">
+                      Interactive Store P&amp;L Simulator
+                    </span>
+                    <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
+                      What-If Margin &amp; Prime Cost Optimization Levers ({totalOrdersCount.toLocaleString()} orders)
+                    </h3>
+                  </div>
+                  {(pnlPriceNudgeRp > 0 || pnlPromoCapPct > 0 || pnlCogsSavePct > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPnlPriceNudgeRp(0);
+                        setPnlPromoCapPct(0);
+                        setPnlCogsSavePct(0);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-xs font-mono border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-surface)] cursor-pointer"
+                    >
+                      Reset Sliders
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-[var(--text-secondary)] font-semibold">Avg Basket Price Nudge</span>
+                      <span className="font-bold text-emerald-500">+{formatRupiah(pnlPriceNudgeRp)}/ord</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={10000}
+                      step={500}
+                      value={pnlPriceNudgeRp}
+                      onChange={(e) => setPnlPriceNudgeRp(Number(e.target.value))}
+                      className="w-full accent-emerald-500 cursor-pointer"
+                    />
+                    <div className="text-[10px] font-mono text-[var(--text-muted)] flex justify-between">
+                      <span>Rp 0</span>
+                      <span>Net Impact: +{formatRupiah(priceGainNetRp)}</span>
+                      <span>+Rp 10k</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-[var(--text-secondary)] font-semibold">Promo Subsidy Cap</span>
+                      <span className="font-bold text-purple-500">-{pnlPromoCapPct}% Burn</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={50}
+                      step={5}
+                      value={pnlPromoCapPct}
+                      onChange={(e) => setPnlPromoCapPct(Number(e.target.value))}
+                      className="w-full accent-purple-500 cursor-pointer"
+                    />
+                    <div className="text-[10px] font-mono text-[var(--text-muted)] flex justify-between">
+                      <span>0%</span>
+                      <span>Saved: +{formatRupiah(promoSavedRp)}</span>
+                      <span>-50%</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-1.5">
+                    <div className="flex justify-between text-xs font-mono">
+                      <span className="text-[var(--text-secondary)] font-semibold">COGS &amp; Pkg Efficiency</span>
+                      <span className="font-bold text-sky-500">-{pnlCogsSavePct}% COGS</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={15}
+                      step={1}
+                      value={pnlCogsSavePct}
+                      onChange={(e) => setPnlCogsSavePct(Number(e.target.value))}
+                      className="w-full accent-sky-500 cursor-pointer"
+                    />
+                    <div className="text-[10px] font-mono text-[var(--text-muted)] flex justify-between">
+                      <span>0%</span>
+                      <span>Saved: +{formatRupiah(cogsSavedRp)}</span>
+                      <span>-15%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 font-mono text-xs">
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+                    <span className="text-[10px] uppercase text-[var(--text-muted)] block">
+                      Simulated Net Contribution
+                    </span>
+                    <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      {formatRupiah(simNetContribRp)} ({simNetContribPct}%)
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+                    <span className="text-[10px] uppercase text-[var(--text-muted)] block">
+                      Simulated Prime Cost %
+                    </span>
+                    <span
+                      className={`text-base font-bold tabular-nums ${
+                        simPrimeCostPct <= primeCost.primeCostTargetPct
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-amber-600 dark:text-amber-400"
+                      }`}
+                    >
+                      {simPrimeCostPct}% of Net (was {primeCost.primeCostPctOfNetRevenue}%)
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                    <span className="text-[10px] uppercase text-emerald-600 dark:text-emerald-400 font-semibold block">
+                      Total Period Profit Unlock
+                    </span>
+                    <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      +{formatRupiah(totalNetUnlockRp)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 

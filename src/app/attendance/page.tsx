@@ -142,6 +142,23 @@ export default function AttendancePayrollPage() {
     fetchReport(selectedPeriod);
   }, [selectedPeriod]);
 
+  // Sync payslip preview theme with global Light/Dark Atelier theme toggle
+  useEffect(() => {
+    const syncDocTheme = () => {
+      const attr = document.documentElement.getAttribute("data-theme");
+      if (attr === "dark" || attr === "light") {
+        setSlipTheme(attr);
+      }
+    };
+    syncDocTheme();
+    const observer = new MutationObserver(syncDocTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!isFullScreenSlip) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -507,8 +524,8 @@ export default function AttendancePayrollPage() {
       <div
         className={`rounded-2xl overflow-hidden border transition-all shadow-xl ${
           isLight
-            ? "bg-white text-zinc-900 border-zinc-300"
-            : "bg-[#18191e] text-zinc-100 border-white/[0.12]"
+            ? "bg-[#fffdf9] text-[#181512] border-[#d6cfc2]"
+            : "bg-[#191714] text-[#f6f3ec] border-[#f5eee2]/15"
         }`}
       >
         <div className={amplified ? "p-6 sm:p-10" : "p-5 sm:p-7"}>
@@ -537,8 +554,8 @@ export default function AttendancePayrollPage() {
                   amplified ? "text-base" : "text-sm"
                 } ${
                   isLight
-                    ? "border-zinc-200 divide-y divide-zinc-200"
-                    : "border-white/[0.1] divide-y divide-white/[0.08]"
+                    ? "border-[#ded8cb] divide-y divide-[#ded8cb] bg-[#f8f5ed]"
+                    : "border-[#f5eee2]/10 divide-y divide-[#f5eee2]/10 bg-[#13110f]"
                 }`}
               >
                 <div
@@ -637,8 +654,8 @@ export default function AttendancePayrollPage() {
                   <tbody
                     className={`divide-y ${
                       isLight
-                        ? "divide-zinc-300 text-zinc-900"
-                        : "divide-white/[0.1] text-zinc-100"
+                        ? "divide-[#ded8cb] text-[#181512]"
+                        : "divide-[#f5eee2]/10 text-[#f6f3ec]"
                     }`}
                   >
                     {/* Row 1: Basic Salary */}
@@ -734,8 +751,8 @@ export default function AttendancePayrollPage() {
                     <tr
                       className={
                         isLight
-                          ? "bg-zinc-100/90 font-semibold"
-                          : "bg-white/[0.04] font-semibold"
+                          ? "bg-[#f1ece1] font-semibold"
+                          : "bg-[#24201c] font-semibold"
                       }
                     >
                       <td

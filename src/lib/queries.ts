@@ -1544,43 +1544,44 @@ export async function getOrderItemCoverageAudit(filters?: QueryFilters): Promise
   const whereOrders = buildWhereClause(filters, 'o');
   const whereItems = buildWhereClause(filters, 'foi');
 
-  const brandRows = await runQuery<Record<string, unknown>>(`
-    WITH item_agg AS (
+  const [brandRows, itemCountRow] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      WITH item_agg AS (
+        SELECT
+          order_id,
+          COUNT(*) AS item_rows,
+          COALESCE(SUM(item_qty), 0) AS units_sold,
+          COALESCE(SUM(total_price), 0) AS item_rev
+        FROM fact_order_items foi
+        WHERE ${whereItems}
+        GROUP BY order_id
+      )
       SELECT
-        order_id,
-        COUNT(*) AS item_rows,
-        COALESCE(SUM(item_qty), 0) AS units_sold,
-        COALESCE(SUM(total_price), 0) AS item_rev
+        o.brand,
+        o.branch,
+        CASE
+          WHEN LOWER(o.provider) LIKE '%pos%' OR LOWER(o.provider) LIKE '%greenville%' OR LOWER(o.provider) LIKE '%majoo%' THEN 'Greenville POS'
+          ELSE 'Klikit Delivery'
+        END AS channel_group,
+        COUNT(DISTINCT o.order_id) AS total_orders,
+        COUNT(DISTINCT CASE WHEN ia.order_id IS NOT NULL THEN o.order_id END) AS orders_with_items,
+        COALESCE(SUM(o.gross_amount), 0) AS order_gross_gmv,
+        COALESCE(SUM(ia.item_rev), 0) AS item_exploded_revenue,
+        COALESCE(SUM(ia.units_sold), 0) AS total_units_sold,
+        strftime(MIN(o.created_at), '%Y-%m-%d') AS min_date,
+        strftime(MAX(o.created_at), '%Y-%m-%d') AS max_date
+      FROM fact_orders o
+      LEFT JOIN item_agg ia ON o.order_id = ia.order_id
+      WHERE ${whereOrders}
+      GROUP BY 1, 2, 3
+      ORDER BY total_orders DESC;
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT COUNT(*) AS cnt
       FROM fact_order_items foi
-      WHERE ${whereItems}
-      GROUP BY order_id
-    )
-    SELECT
-      o.brand,
-      o.branch,
-      CASE
-        WHEN LOWER(o.provider) LIKE '%pos%' OR LOWER(o.provider) LIKE '%greenville%' OR LOWER(o.provider) LIKE '%majoo%' THEN 'Greenville POS'
-        ELSE 'Klikit Delivery'
-      END AS channel_group,
-      COUNT(DISTINCT o.order_id) AS total_orders,
-      COUNT(DISTINCT CASE WHEN ia.order_id IS NOT NULL THEN o.order_id END) AS orders_with_items,
-      COALESCE(SUM(o.gross_amount), 0) AS order_gross_gmv,
-      COALESCE(SUM(ia.item_rev), 0) AS item_exploded_revenue,
-      COALESCE(SUM(ia.units_sold), 0) AS total_units_sold,
-      strftime(MIN(o.created_at), '%Y-%m-%d') AS min_date,
-      strftime(MAX(o.created_at), '%Y-%m-%d') AS max_date
-    FROM fact_orders o
-    LEFT JOIN item_agg ia ON o.order_id = ia.order_id
-    WHERE ${whereOrders}
-    GROUP BY 1, 2, 3
-    ORDER BY total_orders DESC;
-  `);
-
-  const itemCountRow = await runQuery<Record<string, unknown>>(`
-    SELECT COUNT(*) AS cnt
-    FROM fact_order_items foi
-    WHERE ${whereItems};
-  `);
+      WHERE ${whereItems};
+    `),
+  ]);
   const totalItemRows = Number(itemCountRow[0]?.cnt ?? 0);
 
   let totalOrders = 0;
@@ -1643,61 +1644,90 @@ export async function getOrderItemCoverageAudit(filters?: QueryFilters): Promise
   };
 }
 
-async function buildBranchKitchenProfile(
-  branch: 'Combined' | 'Kemang' | 'Greenville',
-  kitchenType: string,
-  slaTargetMin: number,
-  dateAndBrandWhere: string
-): Promise<BranchKitchenSlaProfile> {
-  const branchClause =
-    branch === 'Combined' ? '' : ` AND LOWER(o.branch) = '${branch.toLowerCase()}'`;
-  const branchWhere = `${dateAndBrandWhere}${branchClause} AND o.created_at IS NOT NULL`;
+export async function getKitchenSlaDiagnostic(
+  filters?: QueryFilters,
+  brandName?: string
+): Promise<KitchenSlaDiagnostic> {
+  // Build date-only + brand where clause so we always compute accurate Combined, Kemang, and Greenville profiles in 3 queries instead of 12
+  const dateOnlyFilters: QueryFilters = {
+    range: filters?.range,
+    from: filters?.from,
+    to: filters?.to,
+  };
+  const dateWhere = buildWhereClause(dateOnlyFilters, 'o');
+  const brandClause = brandName ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'` : '';
+  const baseWhere = `${dateWhere}${brandClause} AND o.created_at IS NOT NULL`;
 
-  const breachExpr =
-    branch === 'Combined'
-      ? `(CASE WHEN LOWER(o.branch) = 'kemang' THEN o.prep_time_minutes > 12.0 ELSE o.prep_time_minutes > 15.0 END)`
-      : `(o.prep_time_minutes > ${slaTargetMin})`;
+  const breachExpr = `(CASE WHEN LOWER(o.branch) = 'kemang' THEN o.prep_time_minutes > 12.0 ELSE o.prep_time_minutes > 15.0 END)`;
+  const targetExpr = `(CASE WHEN LOWER(o.branch) = 'kemang' THEN 12.0 ELSE 15.0 END)`;
 
-  const targetExpr =
-    branch === 'Combined'
-      ? `(CASE WHEN LOWER(o.branch) = 'kemang' THEN 12.0 ELSE 15.0 END)`
-      : `${slaTargetMin}`;
-
-  const kptSummaryRows = await runQuery<Record<string, unknown>>(`
-    SELECT
-      COUNT(*) AS total_orders,
-      COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS total_kpt_orders,
-      COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(ROUND(QUANTILE_CONT(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS p90_prep_min,
-      COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS total_breaches,
-      COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS total_red_alerts
-    FROM fact_orders o
-    WHERE ${branchWhere};
-  `);
-
-  const sumRow = kptSummaryRows[0] || {};
-  const totalOrders = Number(sumRow.total_orders ?? 0);
-  const totalKptOrders = Number(sumRow.total_kpt_orders ?? 0);
-  const avgPrepTimeMin = Number(sumRow.avg_prep_min ?? 0);
-  const p90PrepTimeMin = Number(sumRow.p90_prep_min ?? 0);
-  const totalBreaches = Number(sumRow.total_breaches ?? 0);
-  const totalRedAlerts = Number(sumRow.total_red_alerts ?? 0);
-  const breachRatePct = totalKptOrders > 0 ? Number(((totalBreaches / totalKptOrders) * 100).toFixed(1)) : 0;
-
-  const heatmapRaw = await runQuery<Record<string, unknown>>(`
-    SELECT
-      CAST(EXTRACT(DOW FROM o.created_at) AS INTEGER) AS dow,
-      CAST(EXTRACT(HOUR FROM o.created_at) AS INTEGER) AS hr,
-      COUNT(*) AS order_count,
-      COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
-      COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS sla_breaches,
-      COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts
-    FROM fact_orders o
-    WHERE ${branchWhere}
-    GROUP BY 1, 2
-    ORDER BY 1 ASC, 2 ASC;
-  `);
+  const [branchDowHourRaw, p90Row, breachTicketsRaw] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        LOWER(o.branch) AS branch_key,
+        CAST(EXTRACT(DOW FROM o.created_at) AS INTEGER) AS dow,
+        CAST(EXTRACT(HOUR FROM o.created_at) AS INTEGER) AS hr,
+        COUNT(*) AS order_count,
+        COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
+        COALESCE(SUM(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes ELSE 0 END), 0) AS sum_prep_min,
+        COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS sla_breaches,
+        COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts,
+        COALESCE(SUM(o.gross_amount), 0) AS gross_gmv
+      FROM fact_orders o
+      WHERE ${baseWhere}
+      GROUP BY 1, 2, 3
+      ORDER BY 2 ASC, 3 ASC;
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COALESCE(ROUND(QUANTILE_CONT(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS combined_p90,
+        COALESCE(ROUND(QUANTILE_CONT(CASE WHEN LOWER(o.branch) = 'kemang' AND o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS kemang_p90,
+        COALESCE(ROUND(QUANTILE_CONT(CASE WHEN LOWER(o.branch) = 'greenville' AND o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS greenville_p90
+      FROM fact_orders o
+      WHERE ${baseWhere};
+    `),
+    runQuery<Record<string, unknown>>(`
+      WITH basket AS (
+        SELECT
+          order_id,
+          CAST(COALESCE(SUM(item_qty), 0) AS INTEGER) AS total_units,
+          COUNT(DISTINCT item_name) AS distinct_skus,
+          STRING_AGG(CAST(CAST(item_qty AS INTEGER) AS VARCHAR) || 'x ' || item_name, ' · ' ORDER BY item_qty DESC) AS basket_summary
+        FROM fact_order_items
+        GROUP BY order_id
+      ),
+      ranked_breaches AS (
+        SELECT
+          o.order_id,
+          o.brand,
+          o.branch,
+          LOWER(o.branch) AS branch_key,
+          CASE
+            WHEN LOWER(o.provider) LIKE '%grab%' THEN 'GrabFood'
+            WHEN LOWER(o.provider) LIKE '%go%' THEN 'GoFood'
+            ELSE o.provider
+          END AS provider,
+          strftime(o.created_at, '%d %b %H:%M') AS created_at_formatted,
+          ROUND(o.prep_time_minutes, 1) AS prep_time_minutes,
+          ${targetExpr} AS sla_target_min,
+          ROUND(o.prep_time_minutes - ${targetExpr}, 1) AS overage_minutes,
+          CASE WHEN o.prep_time_minutes > 20.0 THEN true ELSE false END AS is_red_alert,
+          COALESCE(o.gross_amount, 0) AS gross_amount,
+          COALESCE(b.total_units, 0) AS total_units,
+          COALESCE(b.distinct_skus, 0) AS distinct_skus,
+          COALESCE(b.basket_summary, 'Basket items pending Klikit Items CSV') AS basket_summary,
+          ROW_NUMBER() OVER (PARTITION BY LOWER(o.branch) ORDER BY o.prep_time_minutes DESC) AS rn_branch
+        FROM fact_orders o
+        LEFT JOIN basket b ON o.order_id = b.order_id
+        WHERE ${baseWhere}
+          AND ${breachExpr}
+      )
+      SELECT *
+      FROM ranked_breaches
+      WHERE rn_branch <= 10
+      ORDER BY prep_time_minutes DESC;
+    `),
+  ]);
 
   const DOW_LABELS: Record<number, string> = {
     0: 'Sun',
@@ -1709,58 +1739,6 @@ async function buildBranchKitchenProfile(
     6: 'Sat',
   };
 
-  let worstDayHourLabel = 'N/A';
-  let worstDayHourPrepMin = 0;
-
-  const heatmapCells: SlaHeatmapCell[] = heatmapRaw.map((r) => {
-    const dow = Number(r.dow ?? 0);
-    const hour = Number(r.hr ?? 0);
-    const orderCount = Number(r.order_count ?? 0);
-    const kptSampleCount = Number(r.kpt_sample_count ?? 0);
-    const avgPrep = Number(r.avg_prep_min ?? 0);
-    const slaBreaches = Number(r.sla_breaches ?? 0);
-    const redAlerts = Number(r.red_alerts ?? 0);
-    const cellBreachRate = kptSampleCount > 0 ? Number(((slaBreaches / kptSampleCount) * 100).toFixed(1)) : 0;
-    const dowLabel = DOW_LABELS[dow] || 'Day';
-
-    if (kptSampleCount >= 1 && avgPrep > worstDayHourPrepMin) {
-      worstDayHourPrepMin = avgPrep;
-      worstDayHourLabel = `${dowLabel} ${String(hour).padStart(2, '0')}:00`;
-    }
-
-    return {
-      dow,
-      dowLabel,
-      hour,
-      orderCount,
-      kptSampleCount,
-      avgPrepTimeMin: avgPrep,
-      slaBreaches,
-      redAlerts,
-      breachRatePct: cellBreachRate,
-    };
-  });
-
-  const daypartRaw = await runQuery<Record<string, unknown>>(`
-    SELECT
-      CASE
-        WHEN EXTRACT(HOUR FROM o.created_at) BETWEEN 7 AND 10 THEN 'Breakfast (07-10)'
-        WHEN EXTRACT(HOUR FROM o.created_at) BETWEEN 11 AND 13 THEN 'Lunch Rush (11-13)'
-        WHEN EXTRACT(HOUR FROM o.created_at) BETWEEN 14 AND 17 THEN 'Afternoon (14-17)'
-        WHEN EXTRACT(HOUR FROM o.created_at) BETWEEN 18 AND 20 THEN 'Dinner Rush (18-20)'
-        ELSE 'Late / Off-Hours'
-      END AS daypart,
-      COUNT(*) AS order_count,
-      COUNT(CASE WHEN o.prep_time_minutes IS NOT NULL AND o.prep_time_minutes > 0 THEN 1 END) AS kpt_sample_count,
-      COALESCE(ROUND(AVG(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS avg_prep_min,
-      COALESCE(SUM(CASE WHEN ${breachExpr} THEN 1 ELSE 0 END), 0) AS sla_breaches,
-      COALESCE(SUM(CASE WHEN o.prep_time_minutes > 20.0 THEN 1 ELSE 0 END), 0) AS red_alerts,
-      COALESCE(SUM(o.gross_amount), 0) AS gross_gmv
-    FROM fact_orders o
-    WHERE ${branchWhere}
-    GROUP BY 1;
-  `);
-
   const DAYPART_ORDER: DaypartSlaStats['daypart'][] = [
     'Breakfast (07-10)',
     'Lunch Rush (11-13)',
@@ -1769,113 +1747,217 @@ async function buildBranchKitchenProfile(
     'Late / Off-Hours',
   ];
 
-  const dayparts: DaypartSlaStats[] = DAYPART_ORDER.map((dpName) => {
-    const found = daypartRaw.find((d) => String(d.daypart) === dpName);
-    const orderCount = Number(found?.order_count ?? 0);
-    const kptSampleCount = Number(found?.kpt_sample_count ?? 0);
-    const slaBreaches = Number(found?.sla_breaches ?? 0);
+  const getDaypartName = (hr: number): DaypartSlaStats['daypart'] => {
+    if (hr >= 7 && hr <= 10) return 'Breakfast (07-10)';
+    if (hr >= 11 && hr <= 13) return 'Lunch Rush (11-13)';
+    if (hr >= 14 && hr <= 17) return 'Afternoon (14-17)';
+    if (hr >= 18 && hr <= 20) return 'Dinner Rush (18-20)';
+    return 'Late / Off-Hours';
+  };
+
+  const p90Data = p90Row[0] || {};
+
+  const assembleProfile = (
+    branch: 'Combined' | 'Kemang' | 'Greenville',
+    kitchenType: string,
+    slaTargetMin: number,
+    p90PrepTimeMin: number
+  ): BranchKitchenSlaProfile => {
+    const branchKey = branch === 'Combined' ? null : branch.toLowerCase();
+    const filteredRows = branchKey
+      ? branchDowHourRaw.filter((r) => String(r.branch_key) === branchKey)
+      : branchDowHourRaw;
+
+    let totalOrders = 0;
+    let totalKptOrders = 0;
+    let totalSumPrepMin = 0;
+    let totalBreaches = 0;
+    let totalRedAlerts = 0;
+
+    // Aggregate by (dow, hr) for heatmap and by daypart for dayparts
+    const cellMap = new Map<
+      string,
+      {
+        dow: number;
+        hr: number;
+        orderCount: number;
+        kptSampleCount: number;
+        sumPrepMin: number;
+        slaBreaches: number;
+        redAlerts: number;
+      }
+    >();
+
+    const dpMap = new Map<
+      DaypartSlaStats['daypart'],
+      {
+        orderCount: number;
+        kptSampleCount: number;
+        sumPrepMin: number;
+        slaBreaches: number;
+        redAlerts: number;
+        grossGmv: number;
+      }
+    >();
+
+    for (const dp of DAYPART_ORDER) {
+      dpMap.set(dp, {
+        orderCount: 0,
+        kptSampleCount: 0,
+        sumPrepMin: 0,
+        slaBreaches: 0,
+        redAlerts: 0,
+        grossGmv: 0,
+      });
+    }
+
+    for (const r of filteredRows) {
+      const dow = Number(r.dow ?? 0);
+      const hr = Number(r.hr ?? 0);
+      const orderCount = Number(r.order_count ?? 0);
+      const kptSampleCount = Number(r.kpt_sample_count ?? 0);
+      const sumPrepMin = Number(r.sum_prep_min ?? 0);
+      const slaBreaches = Number(r.sla_breaches ?? 0);
+      const redAlerts = Number(r.red_alerts ?? 0);
+      const grossGmv = Number(r.gross_gmv ?? 0);
+
+      totalOrders += orderCount;
+      totalKptOrders += kptSampleCount;
+      totalSumPrepMin += sumPrepMin;
+      totalBreaches += slaBreaches;
+      totalRedAlerts += redAlerts;
+
+      const cellKey = `${dow}:${hr}`;
+      const existingCell = cellMap.get(cellKey);
+      if (existingCell) {
+        existingCell.orderCount += orderCount;
+        existingCell.kptSampleCount += kptSampleCount;
+        existingCell.sumPrepMin += sumPrepMin;
+        existingCell.slaBreaches += slaBreaches;
+        existingCell.redAlerts += redAlerts;
+      } else {
+        cellMap.set(cellKey, {
+          dow,
+          hr,
+          orderCount,
+          kptSampleCount,
+          sumPrepMin,
+          slaBreaches,
+          redAlerts,
+        });
+      }
+
+      const dpName = getDaypartName(hr);
+      const dpEntry = dpMap.get(dpName)!;
+      dpEntry.orderCount += orderCount;
+      dpEntry.kptSampleCount += kptSampleCount;
+      dpEntry.sumPrepMin += sumPrepMin;
+      dpEntry.slaBreaches += slaBreaches;
+      dpEntry.redAlerts += redAlerts;
+      dpEntry.grossGmv += grossGmv;
+    }
+
+    let worstDayHourLabel = 'N/A';
+    let worstDayHourPrepMin = 0;
+
+    const sortedCells = Array.from(cellMap.values()).sort((a, b) => a.dow - b.dow || a.hr - b.hr);
+    const heatmapCells: SlaHeatmapCell[] = sortedCells.map((c) => {
+      const avgPrep = c.kptSampleCount > 0 ? Number((c.sumPrepMin / c.kptSampleCount).toFixed(1)) : 0;
+      const cellBreachRate = c.kptSampleCount > 0 ? Number(((c.slaBreaches / c.kptSampleCount) * 100).toFixed(1)) : 0;
+      const dowLabel = DOW_LABELS[c.dow] || 'Day';
+
+      if (c.kptSampleCount >= 1 && avgPrep > worstDayHourPrepMin) {
+        worstDayHourPrepMin = avgPrep;
+        worstDayHourLabel = `${dowLabel} ${String(c.hr).padStart(2, '0')}:00`;
+      }
+
+      return {
+        dow: c.dow,
+        dowLabel,
+        hour: c.hr,
+        orderCount: c.orderCount,
+        kptSampleCount: c.kptSampleCount,
+        avgPrepTimeMin: avgPrep,
+        slaBreaches: c.slaBreaches,
+        redAlerts: c.redAlerts,
+        breachRatePct: cellBreachRate,
+      };
+    });
+
+    const dayparts: DaypartSlaStats[] = DAYPART_ORDER.map((dpName) => {
+      const d = dpMap.get(dpName)!;
+      return {
+        daypart: dpName,
+        orderCount: d.orderCount,
+        kptSampleCount: d.kptSampleCount,
+        avgPrepTimeMin: d.kptSampleCount > 0 ? Number((d.sumPrepMin / d.kptSampleCount).toFixed(1)) : 0,
+        slaBreaches: d.slaBreaches,
+        redAlerts: d.redAlerts,
+        breachRatePct: d.kptSampleCount > 0 ? Number(((d.slaBreaches / d.kptSampleCount) * 100).toFixed(1)) : 0,
+        grossGmv: d.grossGmv,
+      };
+    });
+
+    const matchingTicketsRaw = branchKey
+      ? breachTicketsRaw.filter((t) => String(t.branch_key) === branchKey)
+      : breachTicketsRaw;
+
+    const topBreachTickets: BreachTicketItem[] = matchingTicketsRaw.slice(0, 10).map((t) => ({
+      order_id: String(t.order_id),
+      brand: String(t.brand),
+      branch: String(t.branch),
+      provider: String(t.provider),
+      created_at_formatted: String(t.created_at_formatted || ''),
+      prep_time_minutes: Number(t.prep_time_minutes ?? 0),
+      sla_target_min: Number(t.sla_target_min ?? slaTargetMin),
+      overage_minutes: Number(t.overage_minutes ?? 0),
+      is_red_alert: Boolean(t.is_red_alert),
+      gross_amount: Number(t.gross_amount ?? 0),
+      total_units: Number(t.total_units ?? 0),
+      distinct_skus: Number(t.distinct_skus ?? 0),
+      basket_summary: String(t.basket_summary || ''),
+    }));
+
+    const avgPrepTimeMin = totalKptOrders > 0 ? Number((totalSumPrepMin / totalKptOrders).toFixed(1)) : 0;
+    const breachRatePct = totalKptOrders > 0 ? Number(((totalBreaches / totalKptOrders) * 100).toFixed(1)) : 0;
+
     return {
-      daypart: dpName,
-      orderCount,
-      kptSampleCount,
-      avgPrepTimeMin: Number(found?.avg_prep_min ?? 0),
-      slaBreaches,
-      redAlerts: Number(found?.red_alerts ?? 0),
-      breachRatePct: kptSampleCount > 0 ? Number(((slaBreaches / kptSampleCount) * 100).toFixed(1)) : 0,
-      grossGmv: Number(found?.gross_gmv ?? 0),
+      branch,
+      kitchenType,
+      slaTargetMin,
+      totalOrders,
+      totalKptOrders,
+      avgPrepTimeMin,
+      p90PrepTimeMin,
+      totalBreaches,
+      totalRedAlerts,
+      breachRatePct,
+      worstDayHourLabel,
+      worstDayHourPrepMin,
+      heatmapCells,
+      dayparts,
+      topBreachTickets,
     };
-  });
-
-  const breachTicketsRaw = await runQuery<Record<string, unknown>>(`
-    WITH basket AS (
-      SELECT
-        order_id,
-        CAST(COALESCE(SUM(item_qty), 0) AS INTEGER) AS total_units,
-        COUNT(DISTINCT item_name) AS distinct_skus,
-        STRING_AGG(CAST(CAST(item_qty AS INTEGER) AS VARCHAR) || 'x ' || item_name, ' · ' ORDER BY item_qty DESC) AS basket_summary
-      FROM fact_order_items
-      GROUP BY order_id
-    )
-    SELECT
-      o.order_id,
-      o.brand,
-      o.branch,
-      CASE
-        WHEN LOWER(o.provider) LIKE '%grab%' THEN 'GrabFood'
-        WHEN LOWER(o.provider) LIKE '%go%' THEN 'GoFood'
-        ELSE o.provider
-      END AS provider,
-      strftime(o.created_at, '%d %b %H:%M') AS created_at_formatted,
-      ROUND(o.prep_time_minutes, 1) AS prep_time_minutes,
-      ${targetExpr} AS sla_target_min,
-      ROUND(o.prep_time_minutes - ${targetExpr}, 1) AS overage_minutes,
-      CASE WHEN o.prep_time_minutes > 20.0 THEN true ELSE false END AS is_red_alert,
-      COALESCE(o.gross_amount, 0) AS gross_amount,
-      COALESCE(b.total_units, 0) AS total_units,
-      COALESCE(b.distinct_skus, 0) AS distinct_skus,
-      COALESCE(b.basket_summary, 'Basket items pending Klikit Items CSV') AS basket_summary
-    FROM fact_orders o
-    LEFT JOIN basket b ON o.order_id = b.order_id
-    WHERE ${branchWhere}
-      AND ${breachExpr}
-    ORDER BY o.prep_time_minutes DESC
-    LIMIT 10;
-  `);
-
-  const topBreachTickets: BreachTicketItem[] = breachTicketsRaw.map((t) => ({
-    order_id: String(t.order_id),
-    brand: String(t.brand),
-    branch: String(t.branch),
-    provider: String(t.provider),
-    created_at_formatted: String(t.created_at_formatted || ''),
-    prep_time_minutes: Number(t.prep_time_minutes ?? 0),
-    sla_target_min: Number(t.sla_target_min ?? slaTargetMin),
-    overage_minutes: Number(t.overage_minutes ?? 0),
-    is_red_alert: Boolean(t.is_red_alert),
-    gross_amount: Number(t.gross_amount ?? 0),
-    total_units: Number(t.total_units ?? 0),
-    distinct_skus: Number(t.distinct_skus ?? 0),
-    basket_summary: String(t.basket_summary || ''),
-  }));
-
-  return {
-    branch,
-    kitchenType,
-    slaTargetMin,
-    totalOrders,
-    totalKptOrders,
-    avgPrepTimeMin,
-    p90PrepTimeMin,
-    totalBreaches,
-    totalRedAlerts,
-    breachRatePct,
-    worstDayHourLabel,
-    worstDayHourPrepMin,
-    heatmapCells,
-    dayparts,
-    topBreachTickets,
   };
-}
 
-export async function getKitchenSlaDiagnostic(
-  filters?: QueryFilters,
-  brandName?: string
-): Promise<KitchenSlaDiagnostic> {
-  // Build date-only + brand where clause so we always compute accurate Combined, Kemang, and Greenville profiles
-  const dateOnlyFilters: QueryFilters = {
-    range: filters?.range,
-    from: filters?.from,
-    to: filters?.to,
-  };
-  const dateWhere = buildWhereClause(dateOnlyFilters, 'o');
-  const brandClause = brandName ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'` : '';
-  const dateAndBrandWhere = `${dateWhere}${brandClause}`;
-
-  const [combined, kemang, greenville] = await Promise.all([
-    buildBranchKitchenProfile('Combined', 'Kemang (≤12m) + Greenville (≤15m)', 13.5, dateAndBrandWhere),
-    buildBranchKitchenProfile('Kemang', 'Cloud Kitchen · Delivery Only', 12.0, dateAndBrandWhere),
-    buildBranchKitchenProfile('Greenville', 'Flagship Kitchen · Dine-In & Delivery', 15.0, dateAndBrandWhere),
-  ]);
+  const combined = assembleProfile(
+    'Combined',
+    'Kemang (≤12m) + Greenville (≤15m)',
+    13.5,
+    Number(p90Data.combined_p90 ?? 0)
+  );
+  const kemang = assembleProfile(
+    'Kemang',
+    'Cloud Kitchen · Delivery Only',
+    12.0,
+    Number(p90Data.kemang_p90 ?? 0)
+  );
+  const greenville = assembleProfile(
+    'Greenville',
+    'Flagship Kitchen · Dine-In & Delivery',
+    15.0,
+    Number(p90Data.greenville_p90 ?? 0)
+  );
 
   const rawBranch = (filters?.branch || 'all').toLowerCase();
   const activeBranchFilter: 'all' | 'kemang' | 'greenville' =
@@ -1907,77 +1989,30 @@ export async function getKitchenSlaDiagnostic(
   };
 }
 
-async function buildBranchCancellationProfile(
+function assembleBranchCancellationProfile(
   branch: 'Combined' | 'Kemang' | 'Greenville',
-  dateOnlyFilters?: QueryFilters,
-  brandName?: string
-): Promise<BranchCancellationProfile> {
-  const dateClauseOrders = buildDateAndBranchFilterClause(
-    {
-      range: dateOnlyFilters?.range,
-      from: dateOnlyFilters?.from,
-      to: dateOnlyFilters?.to,
-      branch: branch === 'Combined' ? 'all' : branch.toLowerCase(),
-    },
-    'o'
-  );
-  const dateClauseCancel = buildDateAndBranchFilterClause(
-    {
-      range: dateOnlyFilters?.range,
-      from: dateOnlyFilters?.from,
-      to: dateOnlyFilters?.to,
-      branch: branch === 'Combined' ? 'all' : branch.toLowerCase(),
-    },
-    'c'
-  );
+  brandBranchCompletedRows: Record<string, unknown>[],
+  allCancelTicketsRaw: Record<string, unknown>[]
+): BranchCancellationProfile {
+  const branchKey = branch === 'Combined' ? null : branch.toLowerCase();
 
-  const brandClauseOrders = brandName
-    ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
-    : '';
-  const brandClauseCancel = brandName
-    ? ` AND LOWER(c.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
-    : '';
+  const filteredCompletedRows = branchKey
+    ? brandBranchCompletedRows.filter((r) => String(r.branch_key) === branchKey)
+    : brandBranchCompletedRows;
 
-  const [completedRows, cancelTicketsRaw, brandCompletedRows] = await Promise.all([
-    runQuery<Record<string, unknown>>(`
-      SELECT COUNT(*) AS completed_cnt
-      FROM fact_orders o
-      WHERE o.status != 'CANCELLED' AND ${dateClauseOrders}${brandClauseOrders};
-    `),
-    runQuery<Record<string, unknown>>(`
-      SELECT
-        c.order_id,
-        COALESCE(c.short_id, c.order_id) AS short_id,
-        CASE
-          WHEN LOWER(c.provider) LIKE '%grab%' THEN 'GrabFood'
-          WHEN LOWER(c.provider) LIKE '%go%' THEN 'GoFood'
-          ELSE c.provider
-        END AS provider,
-        c.brand,
-        c.branch,
-        strftime(c.created_at, '%d %b %H:%M') AS created_at_formatted,
-        CAST(COALESCE(EXTRACT(HOUR FROM c.created_at), 0) AS INTEGER) AS hour_of_day,
-        COALESCE(c.gross_amount, 0) AS gross_amount,
-        COALESCE(c.net_payout, 0) AS net_payout,
-        COALESCE(c.cancellation_reason, 'UNSPECIFIED_PLATFORM_CANCEL') AS cancellation_reason,
-        COALESCE(c.cancelled_by, 'unspecified') AS cancelled_by,
-        c.prep_time_minutes,
-        COALESCE(c.meal_prep_time_raw, 'N/A') AS meal_prep_time_raw,
-        COALESCE(c.items_ordered, 1) AS items_ordered,
-        COALESCE(c.menu_items_summary, '') AS menu_items_summary
-      FROM dim_order_cancellations c
-      WHERE ${dateClauseCancel}${brandClauseCancel}
-      ORDER BY c.created_at DESC;
-    `),
-    runQuery<Record<string, unknown>>(`
-      SELECT o.brand, COUNT(*) AS completed_cnt
-      FROM fact_orders o
-      WHERE o.status != 'CANCELLED' AND ${dateClauseOrders}${brandClauseOrders}
-      GROUP BY o.brand;
-    `),
-  ]);
+  const cancelTicketsRaw = branchKey
+    ? allCancelTicketsRaw.filter((r) => String(r.branch || '').toLowerCase() === branchKey)
+    : allCancelTicketsRaw;
 
-  const completedOrders = Number(completedRows[0]?.completed_cnt ?? 0);
+  const completedMap = new Map<string, number>();
+  let completedOrders = 0;
+  for (const row of filteredCompletedRows) {
+    const b = String(row.brand);
+    const cnt = Number(row.completed_cnt ?? 0);
+    completedOrders += cnt;
+    completedMap.set(b, (completedMap.get(b) ?? 0) + cnt);
+  }
+
   const cancelledOrders = cancelTicketsRaw.length;
   const totalOrdersWithCancels = completedOrders + cancelledOrders;
   const cancellationRatePct =
@@ -2211,11 +2246,6 @@ async function buildBranchCancellationProfile(
     };
   });
 
-  const completedMap = new Map<string, number>();
-  for (const row of brandCompletedRows) {
-    completedMap.set(String(row.brand), Number(row.completed_cnt ?? 0));
-  }
-
   const allBrandNames = Array.from(
     new Set([...Array.from(completedMap.keys()), ...Array.from(brandCancelMap.keys())])
   );
@@ -2269,11 +2299,69 @@ export async function getCanceledOrdersDiagnostic(
   filters?: QueryFilters,
   brandName?: string
 ): Promise<CanceledOrdersDiagnostic> {
-  const [combined, kemang, greenville] = await Promise.all([
-    buildBranchCancellationProfile('Combined', filters, brandName),
-    buildBranchCancellationProfile('Kemang', filters, brandName),
-    buildBranchCancellationProfile('Greenville', filters, brandName),
+  const dateClauseOrders = buildDateAndBranchFilterClause(
+    {
+      range: filters?.range,
+      from: filters?.from,
+      to: filters?.to,
+      branch: 'all',
+    },
+    'o'
+  );
+  const dateClauseCancel = buildDateAndBranchFilterClause(
+    {
+      range: filters?.range,
+      from: filters?.from,
+      to: filters?.to,
+      branch: 'all',
+    },
+    'c'
+  );
+
+  const brandClauseOrders = brandName
+    ? ` AND LOWER(o.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+  const brandClauseCancel = brandName
+    ? ` AND LOWER(c.brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+
+  const [brandBranchCompletedRows, allCancelTicketsRaw] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT o.brand, LOWER(o.branch) AS branch_key, COUNT(*) AS completed_cnt
+      FROM fact_orders o
+      WHERE o.status != 'CANCELLED' AND ${dateClauseOrders}${brandClauseOrders}
+      GROUP BY 1, 2;
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        c.order_id,
+        COALESCE(c.short_id, c.order_id) AS short_id,
+        CASE
+          WHEN LOWER(c.provider) LIKE '%grab%' THEN 'GrabFood'
+          WHEN LOWER(c.provider) LIKE '%go%' THEN 'GoFood'
+          ELSE c.provider
+        END AS provider,
+        c.brand,
+        c.branch,
+        strftime(c.created_at, '%d %b %H:%M') AS created_at_formatted,
+        CAST(COALESCE(EXTRACT(HOUR FROM c.created_at), 0) AS INTEGER) AS hour_of_day,
+        COALESCE(c.gross_amount, 0) AS gross_amount,
+        COALESCE(c.net_payout, 0) AS net_payout,
+        COALESCE(c.cancellation_reason, 'UNSPECIFIED_PLATFORM_CANCEL') AS cancellation_reason,
+        COALESCE(c.cancelled_by, 'unspecified') AS cancelled_by,
+        c.prep_time_minutes,
+        COALESCE(c.meal_prep_time_raw, 'N/A') AS meal_prep_time_raw,
+        COALESCE(c.items_ordered, 1) AS items_ordered,
+        COALESCE(c.menu_items_summary, '') AS menu_items_summary
+      FROM dim_order_cancellations c
+      WHERE ${dateClauseCancel}${brandClauseCancel}
+      ORDER BY c.created_at DESC;
+    `),
   ]);
+
+  const combined = assembleBranchCancellationProfile('Combined', brandBranchCompletedRows, allCancelTicketsRaw);
+  const kemang = assembleBranchCancellationProfile('Kemang', brandBranchCompletedRows, allCancelTicketsRaw);
+  const greenville = assembleBranchCancellationProfile('Greenville', brandBranchCompletedRows, allCancelTicketsRaw);
 
   const rawBranch = (filters?.branch || 'all').toLowerCase();
   const activeBranchFilter: 'all' | 'kemang' | 'greenville' =
@@ -2826,4 +2914,258 @@ export async function deleteOrResetRecipeBom(
   await runQuery(`DELETE FROM dim_recipes WHERE recipe_id = '${escId}';`);
   return { resetToDefault: false, deleted: true };
 }
+
+export interface BatchAutoMapResult {
+  mappedCount: number;
+  brandsAffected: string[];
+  totalUnitsCovered: number;
+}
+
+function inferSmartBomTemplate(brand: string, itemName: string, rawCategory: string, realizedPrice: number) {
+  const lower = itemName.toLowerCase();
+  const catLower = (rawCategory || '').toLowerCase();
+  const safePrice = realizedPrice > 0 ? realizedPrice : 28000;
+
+  // 1. Add-ons / Modifiers / Extras
+  if (
+    lower.includes('add on') ||
+    lower.includes('add-on') ||
+    lower.includes('extra ') ||
+    lower.includes('tambahan') ||
+    lower.includes('telur') ||
+    lower.includes('egg') ||
+    lower.includes('sambal') ||
+    lower.includes('sauce') ||
+    lower.includes('cheese') ||
+    safePrice <= 10000
+  ) {
+    return {
+      category: 'Add-Ons & Modifiers',
+      bom_summary: `Auto-mapped culinary modifier BOM (${itemName}) + 35ml portion cup/wrap`,
+      raw_food_cost: Math.max(1200, Math.round(safePrice * 0.22)),
+      packaging_dine_in: 0,
+      packaging_delivery: 600,
+      target_food_cost_pct: 22.0,
+    };
+  }
+
+  // 2. Beverages / Coffee / Tea / Matcha / Drinks
+  if (
+    catLower.includes('drink') ||
+    catLower.includes('bev') ||
+    catLower.includes('coffee') ||
+    lower.includes('coffee') ||
+    lower.includes('kopi') ||
+    lower.includes('latte') ||
+    lower.includes('americano') ||
+    lower.includes('cappuccino') ||
+    lower.includes('espresso') ||
+    lower.includes('mocha') ||
+    lower.includes('matcha') ||
+    lower.includes('tea') ||
+    lower.includes('teh') ||
+    lower.includes('chocolate') ||
+    lower.includes('coklat') ||
+    lower.includes('milk') ||
+    lower.includes('oat') ||
+    lower.includes('ice ') ||
+    lower.includes('iced ') ||
+    lower.includes('hot ') ||
+    lower.includes('mineral') ||
+    lower.includes('lemonade') ||
+    lower.includes('frappe')
+  ) {
+    const isOatOrMatcha = lower.includes('oat') || lower.includes('matcha') || lower.includes('pistachio');
+    const ratio = isOatOrMatcha ? 0.21 : 0.17;
+    return {
+      category: 'Beverage',
+      bom_summary: isOatOrMatcha
+        ? `Auto-mapped specialty beverage BOM (premium oat/matcha base + espresso/syrup + ice)`
+        : `Auto-mapped cafe beverage BOM (arabica espresso/tea base + fresh milk + house syrup)`,
+      raw_food_cost: Math.max(2500, Math.round(safePrice * ratio)),
+      packaging_dine_in: 300,
+      packaging_delivery: 1950,
+      target_food_cost_pct: isOatOrMatcha ? 22.0 : 18.0,
+    };
+  }
+
+  // 3. Bundles / Combos / Paket Hemat
+  if (
+    lower.includes('combo') ||
+    lower.includes('bundle') ||
+    lower.includes('bundling') ||
+    lower.includes('paket') ||
+    lower.includes('hemat') ||
+    lower.includes('twin') ||
+    lower.includes('double') ||
+    lower.includes('box of') ||
+    lower.includes('family') ||
+    safePrice >= 65000
+  ) {
+    return {
+      category: 'Combo & Bundle',
+      bom_summary: `Auto-mapped multi-item combo BOM (${brand} main entree + side/drink pairing + twin carrier)`,
+      raw_food_cost: Math.max(10000, Math.round(safePrice * 0.29)),
+      packaging_dine_in: 800,
+      packaging_delivery: 3600,
+      target_food_cost_pct: 30.0,
+    };
+  }
+
+  // 4. Bakery / Pastry / Toast / Dessert
+  if (
+    catLower.includes('pastry') ||
+    catLower.includes('bakery') ||
+    catLower.includes('toast') ||
+    lower.includes('croissant') ||
+    lower.includes('pain au') ||
+    lower.includes('danish') ||
+    lower.includes('toast') ||
+    lower.includes('roti') ||
+    lower.includes('kaya') ||
+    lower.includes('bun') ||
+    lower.includes('cake') ||
+    lower.includes('brownie') ||
+    lower.includes('cookie') ||
+    lower.includes('bomboloni') ||
+    lower.includes('donut') ||
+    lower.includes('waffle')
+  ) {
+    return {
+      category: 'Bakery & Pastry',
+      bom_summary: `Auto-mapped artisanal bakery/toast BOM (French butter dough/brioche + filling/spread)`,
+      raw_food_cost: Math.max(3800, Math.round(safePrice * 0.26)),
+      packaging_dine_in: 400,
+      packaging_delivery: 2100,
+      target_food_cost_pct: 26.0,
+    };
+  }
+
+  // 5. Burgers / Sandwiches / Smash / Sides
+  if (
+    brand.toLowerCase().includes('burger') ||
+    brand.toLowerCase().includes('slider') ||
+    lower.includes('burger') ||
+    lower.includes('smash') ||
+    lower.includes('patty') ||
+    lower.includes('sandwich') ||
+    lower.includes('sando') ||
+    lower.includes('fries') ||
+    lower.includes('wings') ||
+    lower.includes('tenders') ||
+    lower.includes('nugget')
+  ) {
+    return {
+      category: lower.includes('fries') || lower.includes('wings') || lower.includes('tenders') ? 'Sides & Snacks' : 'Burgers & Sandwiches',
+      bom_summary: `Auto-mapped grill & fry station BOM (protein patty/cut + brioche bun/seasoning + signature sauce)`,
+      raw_food_cost: Math.max(5500, Math.round(safePrice * 0.28)),
+      packaging_dine_in: 500,
+      packaging_delivery: 2500,
+      target_food_cost_pct: 28.0,
+    };
+  }
+
+  // 6. Rice Bowls / Asian Mains / Noodles (LittleKL,utu, Curry, Hainan, Nasi Lemak)
+  return {
+    category: rawCategory && rawCategory !== 'General' ? rawCategory : 'Savory Entree',
+    bom_summary: `Auto-mapped kitchen entree BOM (${brand} protein portion + aromatic rice/noodle base + condiments)`,
+    raw_food_cost: Math.max(5000, Math.round(safePrice * 0.27)),
+    packaging_dine_in: 500,
+    packaging_delivery: 2600,
+    target_food_cost_pct: 28.0,
+  };
+}
+
+export async function batchAutoMapUnmappedSkus(brandFilter?: string): Promise<BatchAutoMapResult> {
+  const catalog = await getCatalogRecipesAndUnmappedSkus(brandFilter);
+  const unmapped = catalog.filter((item) => !item.has_recipe_bom);
+
+  if (unmapped.length === 0) {
+    return { mappedCount: 0, brandsAffected: [], totalUnitsCovered: 0 };
+  }
+
+  const esc = (s: string) => (s || '').replace(/'/g, "''").trim();
+  const brandsSet = new Set<string>();
+  let totalUnitsCovered = 0;
+
+  const valuesSqlList: string[] = [];
+
+  unmapped.forEach((item, idx) => {
+    brandsSet.add(item.brand);
+    totalUnitsCovered += item.total_units_sold || 0;
+
+    const tpl = inferSmartBomTemplate(item.brand, item.item_name, item.category, item.realized_menu_price);
+    const slugBrand = item.brand
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '')
+      .slice(0, 5);
+    const slugItem = item.item_name
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 16);
+    const recipeId = `AUTO-${slugBrand}-${String(idx + 1).padStart(3, '0')}-${slugItem}`;
+
+    const isHero = (item.total_units_sold || 0) >= 80;
+
+    valuesSqlList.push(`(
+      '${esc(recipeId)}',
+      '${esc(item.brand)}',
+      '${esc(item.item_name)}',
+      '${esc(item.canonical_name || item.item_name)}',
+      '${esc(tpl.category)}',
+      '${esc(tpl.bom_summary)}',
+      ${tpl.raw_food_cost},
+      ${tpl.packaging_dine_in},
+      ${tpl.packaging_delivery},
+      ${tpl.target_food_cost_pct},
+      ${isHero ? 'TRUE' : 'FALSE'}
+    )`);
+  });
+
+  // Insert in chunks of 25 rows so SQL payloads stay compact and fast on Layerbase
+  const CHUNK_SIZE = 25;
+  for (let i = 0; i < valuesSqlList.length; i += CHUNK_SIZE) {
+    const chunk = valuesSqlList.slice(i, i + CHUNK_SIZE);
+    await runQuery(`
+      INSERT INTO dim_recipes (
+        recipe_id, brand, item_name, canonical_name, category,
+        bom_summary, raw_food_cost, packaging_dine_in, packaging_delivery,
+        target_food_cost_pct, is_hero_bom
+      )
+      VALUES ${chunk.join(',\n')}
+      ON CONFLICT (recipe_id) DO UPDATE SET
+        canonical_name = EXCLUDED.canonical_name,
+        category = EXCLUDED.category,
+        bom_summary = EXCLUDED.bom_summary,
+        raw_food_cost = EXCLUDED.raw_food_cost,
+        packaging_dine_in = EXCLUDED.packaging_dine_in,
+        packaging_delivery = EXCLUDED.packaging_delivery,
+        target_food_cost_pct = EXCLUDED.target_food_cost_pct,
+        is_hero_bom = EXCLUDED.is_hero_bom;
+    `);
+  }
+
+  return {
+    mappedCount: unmapped.length,
+    brandsAffected: Array.from(brandsSet),
+    totalUnitsCovered,
+  };
+}
+
+export async function resetAutoMappedRecipeBoms(brandFilter?: string): Promise<{ deletedCount: number }> {
+  const brandClause =
+    brandFilter && brandFilter !== 'all'
+      ? ` AND LOWER(brand) = '${brandFilter.toLowerCase().replace(/'/g, "''")}'`
+      : '';
+  const countRows = await runQuery<{ cnt: number }>(`
+    SELECT COUNT(*) AS cnt FROM dim_recipes WHERE recipe_id LIKE 'AUTO-%'${brandClause};
+  `);
+  const deletedCount = Number(countRows[0]?.cnt ?? 0);
+  if (deletedCount > 0) {
+    await runQuery(`DELETE FROM dim_recipes WHERE recipe_id LIKE 'AUTO-%'${brandClause};`);
+  }
+  return { deletedCount };
+}
+
 

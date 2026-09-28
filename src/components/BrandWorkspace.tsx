@@ -86,6 +86,12 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
   const [bomModalTarget, setBomModalTarget] =
     useState<InitialRecipeBomTarget | null>(null);
 
+  // Interactive Menu Price & Promo "What-If" Simulator State
+  const [simPriceNudgeRp, setSimPriceNudgeRp] = useState<number>(0);
+  const [simCogsReductionPct, setSimCogsReductionPct] = useState<number>(0);
+  const [simPromoCapPct, setSimPromoCapPct] = useState<number>(0);
+  const [simTargetScope, setSimTargetScope] = useState<"plowhorses" | "all">("plowhorses");
+
   const {
     brandName,
     kpi,
@@ -107,6 +113,96 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
   const showCancellations = activeTab === "cancellations" || activeTab === "all";
 
   const deltas = kpi.deltas;
+
+  const isSimActive =
+    simPriceNudgeRp > 0 || simCogsReductionPct > 0 || simPromoCapPct > 0;
+
+  // Compute simulated SKU rows and aggregate profit unlock
+  const simResult = React.useMemo(() => {
+    let baseProfitRp = 0;
+    let simProfitRp = 0;
+    let simRevenueRp = 0;
+    let simTotalCostRp = 0;
+    let upgradedToStarCount = 0;
+
+    const avgMarginBenchmark = menuEngineeringSummary.avgMarginBenchmarkRp || 18000;
+    const avgVolBenchmark = menuEngineeringSummary.avgVolumeBenchmark || 10;
+
+    const rows = menuEngineering.map((item) => {
+      const eligibleForPriceNudge =
+        simTargetScope === "all" ||
+        item.quadrant === "Plowhorse" ||
+        item.quadrant === "Dog";
+
+      const priceAdd = eligibleForPriceNudge ? simPriceNudgeRp : 0;
+      const newMenuPrice = item.menu_price + priceAdd;
+      const cogsFactor = 1 - simCogsReductionPct / 100;
+      const newRawFoodCost = Math.round(item.raw_food_cost * cogsFactor);
+      const newPkgCost = Math.round(item.weighted_packaging_cost * cogsFactor);
+      const newUnitCost = newRawFoodCost + newPkgCost;
+      const newUnitMargin = Math.max(0, newMenuPrice - newUnitCost);
+      const newTotalMargin = newUnitMargin * item.total_qty;
+      const newFoodCostPct =
+        newMenuPrice > 0
+          ? Number(((newUnitCost / newMenuPrice) * 100).toFixed(1))
+          : 0;
+
+      const isHighVol = item.total_qty >= avgVolBenchmark;
+      const isHighMargin = newUnitMargin >= avgMarginBenchmark;
+      const simQuadrant: "Star" | "Plowhorse" | "Puzzle" | "Dog" =
+        isHighVol && isHighMargin
+          ? "Star"
+          : isHighVol && !isHighMargin
+          ? "Plowhorse"
+          : !isHighVol && isHighMargin
+          ? "Puzzle"
+          : "Dog";
+
+      if (item.quadrant !== "Star" && simQuadrant === "Star") {
+        upgradedToStarCount++;
+      }
+
+      baseProfitRp += item.total_gross_margin;
+      simProfitRp += newTotalMargin;
+      simRevenueRp += newMenuPrice * item.total_qty;
+      simTotalCostRp += newUnitCost * item.total_qty;
+
+      return {
+        ...item,
+        simMenuPrice: newMenuPrice,
+        simUnitMargin: newUnitMargin,
+        simTotalMargin: newTotalMargin,
+        simFoodCostPct: newFoodCostPct,
+        simQuadrant,
+        upgradedToStar: item.quadrant !== "Star" && simQuadrant === "Star",
+      };
+    });
+
+    const promoSavingsRp = Math.round((kpi.merchant_promo_burn || 0) * (simPromoCapPct / 100));
+    const totalProfitUnlockRp = simProfitRp - baseProfitRp + promoSavingsRp;
+    const simAvgFoodCostPct =
+      simRevenueRp > 0
+        ? Number(((simTotalCostRp / simRevenueRp) * 100).toFixed(1))
+        : menuEngineeringSummary.avgFoodCostPct;
+
+    return {
+      rows,
+      baseProfitRp,
+      simProfitRp: simProfitRp + promoSavingsRp,
+      promoSavingsRp,
+      totalProfitUnlockRp,
+      simAvgFoodCostPct,
+      upgradedToStarCount,
+    };
+  }, [
+    menuEngineering,
+    menuEngineeringSummary,
+    simPriceNudgeRp,
+    simCogsReductionPct,
+    simPromoCapPct,
+    simTargetScope,
+    kpi.merchant_promo_burn,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -1016,6 +1112,204 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
             </div>
           </div>
 
+          {/* Interactive Menu Price & Promo "What-If" Profit Simulator */}
+          <div className="rounded-2xl p-4 sm:p-5 surface-well border border-[var(--border-default)] space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded badge-emerald font-semibold">
+                    Live Profit Simulator
+                  </span>
+                  <h3 className="text-sm sm:text-base font-bold text-[var(--text-primary)]">
+                    Interactive Menu Price, Packaging COGS &amp; Promo &ldquo;What-If&rdquo; Engine
+                  </h3>
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                  Model menu price nudges, packaging/portion cost reductions, and merchant promo burn caps against actual unit velocity ({kpi.total_units_sold.toLocaleString()} units).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="inline-flex rounded-lg p-0.5 bg-[var(--bg-surface)] border border-[var(--border-default)] text-[11px] font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setSimTargetScope("plowhorses")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      simTargetScope === "plowhorses"
+                        ? "badge-emerald font-semibold"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    🐴 Plowhorses &amp; Dogs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimTargetScope("all")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      simTargetScope === "all"
+                        ? "badge-emerald font-semibold"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    All {menuEngineering.length} SKUs
+                  </button>
+                </div>
+
+                {isSimActive && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSimPriceNudgeRp(0);
+                      setSimCogsReductionPct(0);
+                      setSimPromoCapPct(0);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-mono border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] cursor-pointer"
+                  >
+                    Reset Levers
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 3 Interactive Sliders */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+              <div className="p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-[var(--text-secondary)] font-semibold">
+                    1. Menu Price Nudge
+                  </span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                    +{formatRupiah(simPriceNudgeRp)} / unit
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={15000}
+                  step={500}
+                  value={simPriceNudgeRp}
+                  onChange={(e) => setSimPriceNudgeRp(Number(e.target.value))}
+                  className="w-full accent-emerald-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
+                  <span>Rp 0</span>
+                  <span>+Rp 5k</span>
+                  <span>+Rp 10k</span>
+                  <span>+Rp 15k</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-[var(--text-secondary)] font-semibold">
+                    2. COGS &amp; Pkg Optimization
+                  </span>
+                  <span className="font-bold text-sky-600 dark:text-sky-400">
+                    -{simCogsReductionPct}% Unit Cost
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={20}
+                  step={1}
+                  value={simCogsReductionPct}
+                  onChange={(e) => setSimCogsReductionPct(Number(e.target.value))}
+                  className="w-full accent-sky-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
+                  <span>0% (Current)</span>
+                  <span>-5%</span>
+                  <span>-10%</span>
+                  <span>-20%</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="text-[var(--text-secondary)] font-semibold">
+                    3. Merchant Promo Cap
+                  </span>
+                  <span className="font-bold text-purple-600 dark:text-purple-400">
+                    -{simPromoCapPct}% Subsidy
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={50}
+                  step={5}
+                  value={simPromoCapPct}
+                  onChange={(e) => setSimPromoCapPct(Number(e.target.value))}
+                  className="w-full accent-purple-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
+                  <span>0% ({formatRupiah(kpi.merchant_promo_burn)} burn)</span>
+                  <span>-25%</span>
+                  <span>-50% Cap</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Simulated Impact KPI Strip */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+              <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+                <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] block">
+                  Baseline Gross Profit
+                </span>
+                <span className="text-sm font-mono font-bold text-[var(--text-primary)] tabular-nums">
+                  {formatRupiah(simResult.baseProfitRp)}
+                </span>
+                <span className="text-[10px] font-mono text-[var(--text-muted)] block mt-0.5">
+                  Current catalog margin
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-emerald-500/30">
+                <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] block">
+                  Simulated Gross Profit
+                </span>
+                <span className="text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  {formatRupiah(simResult.simProfitRp)}
+                </span>
+                <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                  {simResult.totalProfitUnlockRp > 0
+                    ? `+${formatRupiah(simResult.totalProfitUnlockRp)} net unlock`
+                    : "Adjust sliders to simulate"}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+                <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] block">
+                  Simulated Avg COGS %
+                </span>
+                <span className="text-sm font-mono font-bold text-[var(--text-primary)] tabular-nums">
+                  {simResult.simAvgFoodCostPct}%{" "}
+                  {isSimActive && (
+                    <span className="text-xs text-emerald-500 font-normal">
+                      (was {menuEngineeringSummary.avgFoodCostPct}%)
+                    </span>
+                  )}
+                </span>
+                <span className="text-[10px] font-mono text-[var(--text-muted)] block mt-0.5">
+                  Target Benchmark ≤ 28.0%
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+                <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] block">
+                  Plowhorses → ⭐ Stars
+                </span>
+                <span className="text-sm font-mono font-bold text-sky-600 dark:text-sky-400 tabular-nums">
+                  +{simResult.upgradedToStarCount} SKUs Upgraded
+                </span>
+                <span className="text-[10px] font-mono text-[var(--text-muted)] block mt-0.5">
+                  Promo savings: +{formatRupiah(simResult.promoSavingsRp)}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Menu Engineering Matrix Table */}
           <div className="overflow-x-auto border border-[var(--border-default)] rounded-xl">
             <table className="w-full text-left text-xs">
@@ -1035,7 +1329,7 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
-                {menuEngineering.length === 0 ? (
+                {simResult.rows.length === 0 ? (
                   <tr>
                     <td
                       colSpan={11}
@@ -1045,22 +1339,26 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                     </td>
                   </tr>
                 ) : (
-                  menuEngineering.map((item, idx) => {
+                  simResult.rows.map((item, idx) => {
+                    const effectiveQuad = isSimActive ? item.simQuadrant : item.quadrant;
                     let quadBadge = "badge-emerald";
                     let quadLabel = "⭐ Star";
-                    if (item.quadrant === "Plowhorse") {
+                    if (effectiveQuad === "Plowhorse") {
                       quadBadge = "badge-blue";
                       quadLabel = "🐴 Plowhorse";
-                    } else if (item.quadrant === "Puzzle") {
+                    } else if (effectiveQuad === "Puzzle") {
                       quadBadge = "badge-purple";
                       quadLabel = "🧩 Puzzle";
-                    } else if (item.quadrant === "Dog") {
+                    } else if (effectiveQuad === "Dog") {
                       quadBadge = "badge-amber";
                       quadLabel = "🐕 Dog";
                     }
 
+                    const effectiveFcPct = isSimActive
+                      ? item.simFoodCostPct
+                      : item.food_cost_pct;
                     const isOverBenchmark =
-                      item.food_cost_pct > item.target_food_cost_pct;
+                      effectiveFcPct > item.target_food_cost_pct;
 
                     return (
                       <tr
@@ -1096,7 +1394,12 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-[var(--text-primary)] tabular-nums whitespace-nowrap">
-                          {formatRupiah(item.menu_price)}
+                          {formatRupiah(isSimActive ? item.simMenuPrice : item.menu_price)}
+                          {isSimActive && item.simMenuPrice !== item.menu_price && (
+                            <span className="block text-[10px] text-emerald-500">
+                              was {formatRupiah(item.menu_price)}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-[var(--text-secondary)] tabular-nums whitespace-nowrap">
                           {formatRupiah(item.raw_food_cost)}
@@ -1112,23 +1415,23 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                             className={`px-2 py-0.5 rounded text-xs font-semibold ${
                               !isOverBenchmark
                                 ? "badge-emerald"
-                                : item.food_cost_pct <=
+                                : effectiveFcPct <=
                                   item.target_food_cost_pct + 7.5
                                 ? "badge-amber"
                                 : "badge-rose"
                             }`}
                           >
-                            {item.food_cost_pct}%
+                            {effectiveFcPct}%
                           </span>
                           <span className="block text-[10px] text-[var(--text-muted)] mt-0.5">
                             Target ≤{item.target_food_cost_pct}%
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400 font-semibold tabular-nums whitespace-nowrap">
-                          {formatRupiah(item.unit_gross_margin)}
+                          {formatRupiah(isSimActive ? item.simUnitMargin : item.unit_gross_margin)}
                         </td>
                         <td className="py-3 px-3 text-right font-mono text-[var(--text-primary)] font-bold tabular-nums whitespace-nowrap">
-                          {formatRupiah(item.total_gross_margin)}
+                          {formatRupiah(isSimActive ? item.simTotalMargin : item.total_gross_margin)}
                         </td>
                         <td className="py-3 px-3 text-center whitespace-nowrap">
                           <span
@@ -1139,6 +1442,11 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                           >
                             {quadLabel}
                           </span>
+                          {isSimActive && item.upgradedToStar && (
+                            <span className="block text-[10px] font-mono text-emerald-500 mt-0.5 font-semibold">
+                              ▲ Upgraded!
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3 text-[var(--text-secondary)] text-xs leading-relaxed min-w-[180px]">
                           {item.quadrant_action}

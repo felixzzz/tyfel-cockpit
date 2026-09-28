@@ -63,6 +63,7 @@ export function RecipeBomModal({
   const [referenceMenuPrice, setReferenceMenuPrice] = useState<number>(42000);
 
   const [saving, setSaving] = useState(false);
+  const [autoMapping, setAutoMapping] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadCatalog = async (brandParam?: string) => {
@@ -157,8 +158,23 @@ export function RecipeBomModal({
   }, [catalog, selectedBrandFilter, filterMode, searchQuery]);
 
   const unmappedCount = useMemo(
-    () => catalog.filter((c) => !c.has_recipe_bom).length,
-    [catalog]
+    () =>
+      catalog.filter(
+        (c) =>
+          !c.has_recipe_bom &&
+          (selectedBrandFilter === 'all' || c.brand.toLowerCase() === selectedBrandFilter.toLowerCase())
+      ).length,
+    [catalog, selectedBrandFilter]
+  );
+
+  const autoMappedCount = useMemo(
+    () =>
+      catalog.filter(
+        (c) =>
+          c.recipe_id?.startsWith('AUTO-') &&
+          (selectedBrandFilter === 'all' || c.brand.toLowerCase() === selectedBrandFilter.toLowerCase())
+      ).length,
+    [catalog, selectedBrandFilter]
   );
 
   // Live Simulated Unit Economics
@@ -170,6 +186,121 @@ export function RecipeBomModal({
   const dineInFcPct = Number(((dineInCost / menuPriceSafe) * 100).toFixed(1));
   const deliveryFcPct = Number(((deliveryCost / menuPriceSafe) * 100).toFixed(1));
   const pkgDragPct = Number((((Number(packagingDelivery) || 0) / menuPriceSafe) * 100).toFixed(1));
+
+  const handleBulkAutoMap = async () => {
+    setAutoMapping(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'auto_map_unmapped',
+          brand: selectedBrandFilter,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to auto-map unmapped SKUs');
+      }
+      setFeedback({ type: 'success', text: data.message });
+      await loadCatalog(defaultBrandFilter);
+      router.refresh();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Error auto-mapping SKUs',
+      });
+    } finally {
+      setAutoMapping(false);
+    }
+  };
+
+  const handleClearAutoMapped = async () => {
+    setAutoMapping(true);
+    setFeedback(null);
+    try {
+      const brandParam =
+        selectedBrandFilter && selectedBrandFilter !== 'all'
+          ? `&brand=${encodeURIComponent(selectedBrandFilter)}`
+          : '';
+      const res = await fetch(`/api/recipes?mode=auto_mapped${brandParam}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to clear auto-mapped SKUs');
+      }
+      setFeedback({ type: 'success', text: data.message });
+      await loadCatalog(defaultBrandFilter);
+      router.refresh();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Error clearing auto-mapped SKUs',
+      });
+    } finally {
+      setAutoMapping(false);
+    }
+  };
+
+  const handleExportCsv = () => {
+    const rowsToExport = filteredCatalog.length > 0 ? filteredCatalog : catalog;
+    const headers = [
+      'recipe_id',
+      'brand',
+      'item_name',
+      'canonical_name',
+      'category',
+      'has_recipe_bom',
+      'is_hero_bom',
+      'raw_food_cost_idr',
+      'packaging_dine_in_idr',
+      'packaging_delivery_idr',
+      'target_food_cost_pct',
+      'realized_menu_price_idr',
+      'total_units_sold',
+      'bom_summary',
+    ];
+    const escCsv = (val: unknown) => {
+      const s = String(val ?? '');
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+    const csvLines = [
+      headers.join(','),
+      ...rowsToExport.map((r) =>
+        [
+          r.recipe_id || 'UNMAPPED',
+          r.brand,
+          r.item_name,
+          r.canonical_name,
+          r.category,
+          r.has_recipe_bom ? 'MAPPED' : 'ESTIMATED',
+          r.is_hero_bom ? 'YES' : 'NO',
+          r.raw_food_cost,
+          r.packaging_dine_in,
+          r.packaging_delivery,
+          r.target_food_cost_pct,
+          r.realized_menu_price,
+          r.total_units_sold,
+          r.bom_summary,
+        ]
+          .map(escCsv)
+          .join(',')
+      ),
+    ];
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const slug = selectedBrandFilter === 'all' ? 'all-brands' : selectedBrandFilter.toLowerCase().replace(/\s+/g, '-');
+    link.download = `fnb-ops-bom-catalog-${slug}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,15 +380,19 @@ export function RecipeBomModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
       <div className="cockpit-panel rounded-2xl border border-[var(--border-strong)] shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden bg-[var(--bg-surface)]">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-[var(--border-default)] flex items-center justify-between gap-4 bg-[var(--bg-elevated)]/60">
+        <div className="px-5 py-4 border-b border-[var(--border-default)] flex flex-wrap items-center justify-between gap-4 bg-[var(--bg-elevated)]/60">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-mono uppercase tracking-widest px-2 py-0.5 rounded badge-emerald font-semibold">
                 Track 3 · Culinary Cost Engine
               </span>
-              {unmappedCount > 0 && (
+              {unmappedCount > 0 ? (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded badge-amber">
                   {unmappedCount} Unmapped SKUs
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded badge-emerald">
+                  100% SKUs Mapped ({catalog.length})
                 </span>
               )}
             </div>
@@ -265,16 +400,48 @@ export function RecipeBomModal({
               Interactive Menu BOM &amp; Packaging COGS Editor
             </h3>
             <p className="text-xs text-[var(--text-secondary)]">
-              Update raw ingredient costs, dine-in vs delivery packaging drag, or map unmapped POS/Klikit SKUs directly in <code className="font-mono">dim_recipes</code>.
+              Update raw ingredient costs, dine-in vs delivery packaging drag, or batch auto-map unmapped POS/Klikit SKUs directly in <code className="font-mono">dim_recipes</code>.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
-          >
-            ESC / Close
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {unmappedCount > 0 && (
+              <button
+                type="button"
+                disabled={autoMapping || loadingCatalog}
+                onClick={handleBulkAutoMap}
+                className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+                title="Automatically generate culinary & packaging BOMs for all unmapped SKUs using category templates"
+              >
+                {autoMapping ? 'Mapping SKUs...' : `⚡ 1-Click Auto-Map (${unmappedCount})`}
+              </button>
+            )}
+            {autoMappedCount > 0 && unmappedCount === 0 && (
+              <button
+                type="button"
+                disabled={autoMapping || loadingCatalog}
+                onClick={handleClearAutoMapped}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-mono border border-amber-500/40 text-amber-500 hover:bg-amber-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                title="Revert auto-mapped SKUs back to unmapped state"
+              >
+                Undo Auto-Map ({autoMappedCount})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+              title="Download BOM & Packaging COGS Catalog as CSV"
+            >
+              ⬇ Export BOM CSV
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+            >
+              ESC / Close
+            </button>
+          </div>
         </div>
 
         {/* Body Split: Left Catalog Picker + Right Live BOM Editor */}

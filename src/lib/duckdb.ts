@@ -796,6 +796,51 @@ function normalizeLayerbaseValue(val: unknown, colName: string, dataTypeID?: num
   return val;
 }
 
+const QUERY_CACHE_TTL_MS = 60_000; // 60s TTL for read queries, auto-invalidated on any write
+const MAX_CACHE_ENTRIES = 500;
+
+interface CachedQueryEntry {
+  rows: unknown[];
+  expiresAt: number;
+}
+
+const globalForDuckCache = globalThis as unknown as {
+  __fnbQueryResultCache?: Map<string, CachedQueryEntry>;
+  __fnbInFlightQueries?: Map<string, Promise<unknown[]>>;
+};
+
+const queryResultCache =
+  globalForDuckCache.__fnbQueryResultCache ||
+  (globalForDuckCache.__fnbQueryResultCache = new Map<string, CachedQueryEntry>());
+
+const inFlightQueries =
+  globalForDuckCache.__fnbInFlightQueries ||
+  (globalForDuckCache.__fnbInFlightQueries = new Map<string, Promise<unknown[]>>());
+
+export function invalidateQueryCache(): void {
+  queryResultCache.clear();
+  inFlightQueries.clear();
+}
+
+function normalizeSqlKey(sql: string): string {
+  return sql.trim().replace(/\s+/g, ' ');
+}
+
+function isMutatingSql(sql: string): boolean {
+  const trimmed = sql.trim().replace(/^\/\*[\s\S]*?\*\/\s*/, '');
+  if (/^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b/i.test(trimmed)) {
+    return false;
+  }
+  return /^(INSERT\s+INTO|UPDATE\s+\S+|DELETE\s+FROM|DROP\s+|ALTER\s+|CREATE\s+|TRUNCATE\s+|REPLACE\s+INTO)\b/i.test(
+    trimmed
+  );
+}
+
+function isReadOnlySql(sql: string): boolean {
+  const trimmed = sql.trim().replace(/^\/\*[\s\S]*?\*\/\s*/, '');
+  return /^(SELECT|WITH|SHOW|DESCRIBE|EXPLAIN|PRAGMA)\b/i.test(trimmed) && !isMutatingSql(trimmed);
+}
+
 function createLayerbaseHttpInstance(options: {
   sqlEndpoint?: string;
   connectionString?: string;
@@ -815,6 +860,10 @@ function createLayerbaseHttpInstance(options: {
           columnNames: () => [] as string[],
           getRows: async () => [] as unknown[][],
         };
+      }
+
+      if (isMutatingSql(sql)) {
+        invalidateQueryCache();
       }
 
       // Primary: Layerbase Serverless SQL HTTP Endpoint (/sql) — No 10 KB limit
@@ -1016,36 +1065,79 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
 export async function resetDuckDB(): Promise<void> {
   dbInstance = null;
   dbInitPromise = null;
+  invalidateQueryCache();
 }
 
 export async function runQuery<T = Record<string, unknown>>(sql: string): Promise<T[]> {
-  const db = await getDuckDB();
-  let conn: DuckDBConnection | null = null;
-  try {
-    conn = await db.connect();
-    const res = await conn.run(sql);
-    const colNames = res.columnNames();
-    const rawRows = await res.getRows();
+  const cacheable = isReadOnlySql(sql);
+  const cacheKey = cacheable ? normalizeSqlKey(sql) : '';
 
-    return rawRows.map((row) => {
-      const obj: Record<string, unknown> = {};
-      colNames.forEach((col, idx) => {
-        const val = row[idx];
-        obj[col] = typeof val === 'bigint' ? Number(val) : val;
+  if (cacheable) {
+    const now = Date.now();
+    const cached = queryResultCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.rows as T[];
+    }
+    const existingInFlight = inFlightQueries.get(cacheKey);
+    if (existingInFlight) {
+      return (await existingInFlight) as T[];
+    }
+  } else if (isMutatingSql(sql)) {
+    invalidateQueryCache();
+  }
+
+  const executePromise = (async (): Promise<T[]> => {
+    const db = await getDuckDB();
+    let conn: DuckDBConnection | null = null;
+    try {
+      conn = await db.connect();
+      const res = await conn.run(sql);
+      const colNames = res.columnNames();
+      const rawRows = await res.getRows();
+
+      const mapped = rawRows.map((row) => {
+        const obj: Record<string, unknown> = {};
+        colNames.forEach((col, idx) => {
+          const val = row[idx];
+          obj[col] = typeof val === 'bigint' ? Number(val) : val;
+        });
+        return obj as T;
       });
-      return obj as T;
-    });
-  } catch (error) {
-    console.error('[DuckDB Query Error]', error, 'SQL:', sql);
-    throw error;
-  } finally {
-    if (conn) {
-      try {
-        conn.closeSync();
-      } catch {
-        // ignore close errors
+
+      if (cacheable) {
+        if (queryResultCache.size >= MAX_CACHE_ENTRIES) {
+          const oldestKey = queryResultCache.keys().next().value;
+          if (oldestKey) queryResultCache.delete(oldestKey);
+        }
+        queryResultCache.set(cacheKey, {
+          rows: mapped,
+          expiresAt: Date.now() + QUERY_CACHE_TTL_MS,
+        });
+      }
+
+      return mapped;
+    } catch (error) {
+      console.error('[DuckDB Query Error]', error, 'SQL:', sql);
+      throw error;
+    } finally {
+      if (cacheable) {
+        inFlightQueries.delete(cacheKey);
+      }
+      if (conn) {
+        try {
+          conn.closeSync();
+        } catch {
+          // ignore close errors
+        }
       }
     }
+  })();
+
+  if (cacheable) {
+    inFlightQueries.set(cacheKey, executePromise as Promise<unknown[]>);
   }
+
+  return executePromise;
 }
+
 

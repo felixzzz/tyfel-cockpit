@@ -777,7 +777,12 @@ function formatNowWib(): string {
   return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
 }
 
+const globalForAttendance = globalThis as unknown as {
+  __fnbPayrollPaymentStatusTableEnsured?: boolean;
+};
+
 async function ensurePayrollPaymentStatusTable(): Promise<void> {
+  if (globalForAttendance.__fnbPayrollPaymentStatusTableEnsured) return;
   const db = await getDuckDB();
   const conn = await db.connect();
   try {
@@ -792,6 +797,7 @@ async function ensurePayrollPaymentStatusTable(): Promise<void> {
         PRIMARY KEY (period_key, employee_name)
       );
     `);
+    globalForAttendance.__fnbPayrollPaymentStatusTableEnsured = true;
   } finally {
     try {
       conn.closeSync();
@@ -916,12 +922,9 @@ export async function getAttendanceCycleReport(params?: {
 }): Promise<AttendanceCycleReport> {
   await ensurePayrollPaymentStatusTable();
 
-  // Inspect max date in fact_attendance to anchor reference date (at least 2026-09-26)
-  const [maxDateRows, allDatesRaw, allOverridesRaw, allPaidCountsRaw] =
+  // Inspect work_date counts in fact_attendance to anchor reference date (at least 2026-09-26)
+  const [allDatesRaw, allOverridesRaw, allPaidCountsRaw] =
     await Promise.all([
-      runQuery<{ max_d: string | null }>(
-        `SELECT CAST(MAX(work_date) AS VARCHAR) as max_d FROM fact_attendance`
-      ),
       runQuery<{ work_date: string; cnt: number }>(`
         SELECT CAST(work_date AS VARCHAR) as work_date, COUNT(*) as cnt
         FROM fact_attendance
@@ -940,7 +943,12 @@ export async function getAttendanceCycleReport(params?: {
       `),
     ]);
 
-  const dbMaxDate = maxDateRows[0]?.max_d || '2026-09-26';
+  let dbMaxDate = '2026-09-26';
+  for (const row of allDatesRaw) {
+    if (row.work_date && row.work_date > dbMaxDate) {
+      dbMaxDate = row.work_date;
+    }
+  }
   const todayIso = new Date().toISOString().slice(0, 10);
   const referenceDate = dbMaxDate > todayIso ? dbMaxDate : todayIso;
 
