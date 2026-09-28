@@ -18,7 +18,7 @@ import {
   Line,
   ComposedChart,
 } from 'recharts';
-import type { SkuParetoItem, BrandChannelStats, BrandHourlyStats } from '@/lib/queries';
+import type { SkuParetoItem, BrandChannelStats, BrandHourlyStats, DailyTrendPoint } from '@/lib/queries';
 import { getChannelColor } from '@/lib/brandTheme';
 
 function formatRupiah(amount: number): string {
@@ -697,3 +697,158 @@ export function BrandChannelChart({ data }: BrandChannelChartProps) {
     </div>
   );
 }
+
+/* =========================================================================
+   7. Daily Revenue & Net Realization Time-Series Chart
+   ========================================================================= */
+
+interface DailyRevenueTrendChartProps {
+  data: DailyTrendPoint[];
+}
+
+export function DailyRevenueTrendChart({ data }: DailyRevenueTrendChartProps) {
+  const chartData = data.map((d) => ({
+    date: d.dateLabel,
+    fullDate: d.date,
+    'Gross GMV': Math.round(d.gross_gmv / 1000),
+    'Net Payout': Math.round(d.net_payout / 1000),
+    'Promo Burn': Math.round(d.merchant_promo_burn / 1000),
+    Orders: d.order_count,
+    rawGmv: d.gross_gmv,
+    rawNet: d.net_payout,
+    rawPromo: d.merchant_promo_burn,
+    realizationRate: d.net_realization_rate,
+    avgPrepMin: d.avg_prep_time_min,
+    slaBreaches: d.sla_breaches,
+  }));
+
+  if (chartData.length === 0) {
+    return (
+      <div className="w-full h-72 flex items-center justify-center text-xs font-mono text-[var(--text-muted)] surface-well rounded-xl">
+        No daily transaction points in selected date range
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-76">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={chartData} margin={{ top: 12, right: 16, left: 0, bottom: 8 }}>
+          <defs>
+            <linearGradient id="dailyGmvArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0284c7" stopOpacity={0.28} />
+              <stop offset="85%" stopColor="#0284c7" stopOpacity={0.03} />
+              <stop offset="100%" stopColor="#0284c7" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="dailyNetArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
+              <stop offset="85%" stopColor="#10b981" stopOpacity={0.05} />
+              <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
+
+          <XAxis
+            dataKey="date"
+            stroke="var(--chart-axis)"
+            fontSize={11}
+            tickLine={false}
+            axisLine={{ stroke: 'var(--border-default)' }}
+            dy={6}
+          />
+          <YAxis
+            yAxisId="left"
+            stroke="var(--chart-axis)"
+            fontSize={11}
+            tickLine={false}
+            axisLine={{ stroke: 'var(--border-default)' }}
+            tickFormatter={(val) => (val >= 1000 ? `Rp${(val / 1000).toFixed(1)}M` : `Rp${val}k`)}
+          />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            stroke="#c85a32"
+            fontSize={11}
+            tickLine={false}
+            axisLine={{ stroke: 'rgba(200, 90, 50, 0.25)' }}
+            tickFormatter={(val) => `${val} ord`}
+          />
+
+          <Tooltip
+            cursor={{ fill: 'var(--chart-cursor)' }}
+            content={({ active, payload }) => {
+              if (!active || !payload || !payload.length) return null;
+              const d = payload[0].payload;
+              return (
+                <GlassTooltip
+                  title={
+                    <span className="flex items-center justify-between w-full gap-3">
+                      <span>{d.date} ({d.fullDate})</span>
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded badge-emerald">
+                        {d.realizationRate}% Net
+                      </span>
+                    </span>
+                  }
+                  items={[
+                    { label: 'Gross GMV', value: formatRupiah(d.rawGmv), color: '#0284c7' },
+                    { label: 'Net Settlement', value: formatRupiah(d.rawNet), color: '#10b981' },
+                    { label: 'Promo Burn', value: formatRupiah(d.rawPromo), color: '#e11d48' },
+                    { label: 'Completed Orders', value: `${d.Orders} tickets`, color: '#c85a32' },
+                    ...(d.avgPrepMin > 0
+                      ? [
+                          {
+                            label: 'Avg Kitchen Prep',
+                            value: `${d.avgPrepMin}m`,
+                            badge: d.slaBreaches > 0 ? `${d.slaBreaches} SLA breach` : 'On Target',
+                          },
+                        ]
+                      : []),
+                  ]}
+                  footer={<span>Daily revenue realization & order velocity</span>}
+                />
+              );
+            }}
+          />
+
+          <Legend
+            verticalAlign="top"
+            align="right"
+            wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
+            formatter={(val) => <span className="text-[var(--text-secondary)] font-semibold ml-1 mr-3">{val}</span>}
+          />
+
+          <Area
+            isAnimationActive={false}
+            yAxisId="left"
+            type="monotone"
+            dataKey="Gross GMV"
+            stroke="#0284c7"
+            strokeWidth={2}
+            fill="url(#dailyGmvArea)"
+          />
+          <Area
+            isAnimationActive={false}
+            yAxisId="left"
+            type="monotone"
+            dataKey="Net Payout"
+            stroke="#10b981"
+            strokeWidth={2.5}
+            fill="url(#dailyNetArea)"
+          />
+          <Line
+            isAnimationActive={false}
+            yAxisId="right"
+            type="monotone"
+            dataKey="Orders"
+            stroke="#c85a32"
+            strokeWidth={2}
+            dot={{ r: 2.5, fill: '#c85a32', stroke: 'var(--bg-surface)', strokeWidth: 1.5 }}
+            activeDot={{ r: 4.5, fill: '#c85a32', stroke: 'var(--bg-surface)', strokeWidth: 2 }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+

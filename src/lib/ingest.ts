@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import type { DuckDBConnection } from "@duckdb/node-api";
@@ -505,33 +506,21 @@ async function ingestMajooPOS(
     }
   }
 
-  await conn.run(`CREATE OR REPLACE TEMP TABLE temp_upload_orders (
-    dedup_id VARCHAR,
-    order_id VARCHAR,
-    external_id VARCHAR,
-    short_id VARCHAR,
-    provider VARCHAR,
-    brand VARCHAR,
-    branch VARCHAR,
-    status VARCHAR,
-    gross_amount DOUBLE,
-    net_payout DOUBLE,
-    merchant_promo_burn DOUBLE,
-    provider_promo_burn DOUBLE,
-    delivery_fee DOUBLE,
-    net_sales DOUBLE,
-    net_realization_rate DOUBLE,
-    order_type VARCHAR,
-    meal_prep_time_raw VARCHAR,
-    prep_time_minutes DOUBLE,
-    kpt_sla_breach BOOLEAN,
-    kpt_red_alert BOOLEAN,
-    created_at TIMESTAMP,
-    delivered_at TIMESTAMP,
-    source_file VARCHAR
-  );`);
+  let existingDupes = 0;
+  for (let i = 0; i < ordersToInsert.length; i += 200) {
+    const idChunk = ordersToInsert
+      .slice(i, i + 200)
+      .map((o) => `'${escSql(o.dedup_id)}'`)
+      .join(",");
+    const checkOrderRes = await conn.run(`
+      SELECT count(*) FROM fact_orders WHERE dedup_id IN (${idChunk})
+    `);
+    const orderCheckRows = await checkOrderRes.getRows();
+    existingDupes += Number(orderCheckRows[0]?.[0] ?? 0);
+  }
+  const newOrders = Math.max(0, ordersToInsert.length - existingDupes);
 
-  const BATCH_SIZE = 250;
+  const BATCH_SIZE = 100;
   for (let i = 0; i < ordersToInsert.length; i += BATCH_SIZE) {
     const chunk = ordersToInsert.slice(i, i + BATCH_SIZE);
     const valuesList = chunk
@@ -559,66 +548,44 @@ async function ingestMajooPOS(
           FALSE,
           ${o.created_at ? `TIMESTAMP '${escSql(o.created_at)}'` : "NULL"},
           ${o.delivered_at ? `TIMESTAMP '${escSql(o.delivered_at)}'` : "NULL"},
-          '${escSql(o.source_file)}'
+          '${escSql(o.source_file)}',
+          CURRENT_TIMESTAMP
         )`
       )
       .join(",\n");
 
-    await conn.run(`INSERT INTO temp_upload_orders VALUES ${valuesList};`);
+    await conn.run(`
+      INSERT INTO fact_orders (
+        dedup_id, order_id, external_id, short_id, provider, brand, branch,
+        status, gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
+        delivery_fee, net_sales, net_realization_rate, order_type,
+        meal_prep_time_raw, prep_time_minutes, kpt_sla_breach, kpt_red_alert,
+        created_at, delivered_at, source_file, ingested_at
+      )
+      VALUES ${valuesList}
+      ON CONFLICT (dedup_id) DO UPDATE SET
+        gross_amount = EXCLUDED.gross_amount,
+        net_payout = EXCLUDED.net_payout,
+        net_sales = EXCLUDED.net_sales,
+        delivered_at = EXCLUDED.delivered_at,
+        source_file = EXCLUDED.source_file,
+        ingested_at = EXCLUDED.ingested_at;
+    `);
   }
 
-  const checkOrderRes = await conn.run(`
-    SELECT
-      count(*) as total_staged,
-      count(fo.dedup_id) as existing_dupes,
-      count(*) - count(fo.dedup_id) as new_orders
-    FROM temp_upload_orders s
-    LEFT JOIN fact_orders fo ON s.dedup_id = fo.dedup_id
-  `);
-  const orderCheckRows = await checkOrderRes.getRows();
-  const existingDupes = Number(orderCheckRows[0][1]);
-  const newOrders = Number(orderCheckRows[0][2]);
-
-  await conn.run(`
-    INSERT INTO fact_orders (
-      dedup_id, order_id, external_id, short_id, provider, brand, branch,
-      status, gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
-      delivery_fee, net_sales, net_realization_rate, order_type,
-      meal_prep_time_raw, prep_time_minutes, kpt_sla_breach, kpt_red_alert,
-      created_at, delivered_at, source_file, ingested_at
-    )
-    SELECT 
-      dedup_id, order_id, external_id, short_id, provider, brand, branch,
-      status, gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
-      delivery_fee, net_sales, net_realization_rate, order_type,
-      meal_prep_time_raw, prep_time_minutes, kpt_sla_breach, kpt_red_alert,
-      created_at, delivered_at, source_file, CURRENT_TIMESTAMP as ingested_at
-    FROM temp_upload_orders
-    ON CONFLICT (dedup_id) DO UPDATE SET
-      gross_amount = EXCLUDED.gross_amount,
-      net_payout = EXCLUDED.net_payout,
-      net_sales = EXCLUDED.net_sales,
-      delivered_at = EXCLUDED.delivered_at,
-      source_file = EXCLUDED.source_file,
-      ingested_at = EXCLUDED.ingested_at;
-  `);
-
-  await conn.run(`CREATE OR REPLACE TEMP TABLE temp_upload_items (
-    dedup_id VARCHAR,
-    order_id VARCHAR,
-    external_id VARCHAR,
-    provider VARCHAR,
-    brand VARCHAR,
-    branch VARCHAR,
-    item_name VARCHAR,
-    category VARCHAR,
-    item_qty DOUBLE,
-    item_price DOUBLE,
-    total_price DOUBLE,
-    created_at TIMESTAMP,
-    status VARCHAR,
-    source_file VARCHAR
-  );`);
+  let existingItemDupes = 0;
+  for (let i = 0; i < itemsToInsert.length; i += 200) {
+    const idChunk = itemsToInsert
+      .slice(i, i + 200)
+      .map((it) => `'${escSql(it.dedup_id)}'`)
+      .join(",");
+    const checkItemRes = await conn.run(`
+      SELECT count(*) FROM fact_order_items WHERE dedup_id IN (${idChunk})
+    `);
+    const itemCheckRows = await checkItemRes.getRows();
+    existingItemDupes += Number(itemCheckRows[0]?.[0] ?? 0);
+  }
+  const newItems = Math.max(0, itemsToInsert.length - existingItemDupes);
 
   for (let i = 0; i < itemsToInsert.length; i += BATCH_SIZE) {
     const chunk = itemsToInsert.slice(i, i + BATCH_SIZE);
@@ -638,42 +605,26 @@ async function ingestMajooPOS(
           ${it.total_price},
           ${it.created_at ? `TIMESTAMP '${escSql(it.created_at)}'` : "NULL"},
           '${escSql(it.status)}',
-          '${escSql(it.source_file)}'
+          '${escSql(it.source_file)}',
+          CURRENT_TIMESTAMP
         )`
       )
       .join(",\n");
 
-    await conn.run(`INSERT INTO temp_upload_items VALUES ${valuesList};`);
+    await conn.run(`
+      INSERT INTO fact_order_items (
+        dedup_id, order_id, external_id, provider, brand, branch,
+        item_name, category, item_qty, item_price, total_price,
+        created_at, status, source_file, ingested_at
+      )
+      VALUES ${valuesList}
+      ON CONFLICT (dedup_id) DO UPDATE SET
+        item_price = EXCLUDED.item_price,
+        total_price = EXCLUDED.total_price,
+        source_file = EXCLUDED.source_file,
+        ingested_at = EXCLUDED.ingested_at;
+    `);
   }
-
-  const checkItemRes = await conn.run(`
-    SELECT
-      count(*) as total_staged,
-      count(fo.dedup_id) as existing_dupes,
-      count(*) - count(fo.dedup_id) as new_items
-    FROM temp_upload_items s
-    LEFT JOIN fact_order_items fo ON s.dedup_id = fo.dedup_id
-  `);
-  const itemCheckRows = await checkItemRes.getRows();
-  const newItems = Number(itemCheckRows[0][2]);
-
-  await conn.run(`
-    INSERT INTO fact_order_items (
-      dedup_id, order_id, external_id, provider, brand, branch,
-      item_name, category, item_qty, item_price, total_price,
-      created_at, status, source_file, ingested_at
-    )
-    SELECT
-      dedup_id, order_id, external_id, provider, brand, branch,
-      item_name, category, item_qty, item_price, total_price,
-      created_at, status, source_file, CURRENT_TIMESTAMP as ingested_at
-    FROM temp_upload_items
-    ON CONFLICT (dedup_id) DO UPDATE SET
-      item_price = EXCLUDED.item_price,
-      total_price = EXCLUDED.total_price,
-      source_file = EXCLUDED.source_file,
-      ingested_at = EXCLUDED.ingested_at;
-  `);
 
   let msg = `Saved as "${canonicalName}". `;
   if (newOrders === 0 && ordersToInsert.length > 0) {
@@ -701,6 +652,92 @@ async function ingestMajooPOS(
   };
 }
 
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cur += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ",") {
+        result.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+function parseCsvRecords(content: string): Array<Record<string, string>> {
+  const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
+  const rows: Array<Record<string, string>> = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseCsvLine(lines[i]);
+    if (vals.length < 3) continue;
+    const obj: Record<string, string> = {};
+    for (let c = 0; c < headers.length; c++) {
+      obj[headers[c]] = vals[c] !== undefined ? vals[c] : "";
+    }
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function parseKlikitTimestamp(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/^"+|"+$/g, "");
+  const m = trimmed.match(
+    /^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i
+  );
+  if (!m) return null;
+  const mon = MONTHS[m[1].toLowerCase()];
+  if (!mon) return null;
+  const day = m[2].padStart(2, "0");
+  const year = m[3];
+  let hour = parseInt(m[4], 10);
+  const ampm = m[7].toUpperCase();
+  if (ampm === "PM" && hour < 12) hour += 12;
+  if (ampm === "AM" && hour === 12) hour = 0;
+  const hh = String(hour).padStart(2, "0");
+  return `${year}-${mon}-${day} ${hh}:${m[5]}:${m[6]}`;
+}
+
+function parsePrepTimeMinutes(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const minMatch = raw.match(/(\d+)\s*min/i);
+  const secMatch = raw.match(/(\d+)\s*sec/i);
+  if (!minMatch && !secMatch) return null;
+  const mins = minMatch ? parseFloat(minMatch[1]) : 0;
+  const secs = secMatch ? parseFloat(secMatch[1]) / 60.0 : 0;
+  return mins + secs;
+}
+
+function md5Hex(input: string): string {
+  return crypto.createHash("md5").update(input).digest("hex");
+}
+
+function formatDuckDbDoubleForMd5(n: number): string {
+  return Number.isInteger(n) ? `${n}.0` : String(n);
+}
+
 async function ingestKlikitOrders(
   conn: DuckDBConnection,
   filePath: string,
@@ -708,198 +745,275 @@ async function ingestKlikitOrders(
   originalName: string,
   sizeBytes: number
 ): Promise<IngestSummary> {
-  await conn.run(`
-    CREATE OR REPLACE TEMP TABLE staging_upload_orders AS
-    SELECT
-      "Order ID" as order_id,
-      "External ID" as external_id,
-      "Short ID" as short_id,
-      CASE
-        WHEN LOWER("Provider") LIKE '%grab%' THEN 'GrabFood'
-        WHEN LOWER("Provider") LIKE '%go%' THEN 'GoFood'
-        ELSE "Provider"
-      END as provider,
-      trim(both '"' from "Brand") as brand,
-      "Branch" as branch,
-      "Status" as status,
-      TRY_CAST("Gross Order Value" AS DOUBLE) as gross_amount,
-      TRY_CAST("Net Order Value" AS DOUBLE) as net_payout,
-      TRY_CAST("Merchant Discount" AS DOUBLE) as merchant_promo_burn,
-      TRY_CAST("Provider Discount" AS DOUBLE) as provider_promo_burn,
-      TRY_CAST("Delivery Fee" AS DOUBLE) as delivery_fee,
-      "Order Type" as order_type,
-      "Meal Preparation Time" as meal_prep_time_raw,
-      TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*min', 1) AS DOUBLE) + 
-      COALESCE(TRY_CAST(regexp_extract("Meal Preparation Time", '(\\d+)\\s*sec', 1) AS DOUBLE) / 60.0, 0.0) as prep_time_minutes,
-      CASE
-        WHEN "Cancellation Reason" IS NULL OR TRIM("Cancellation Reason") IN ('', '-', 'N/A', 'null') THEN 'UNSPECIFIED_PLATFORM_CANCEL'
-        ELSE UPPER(TRIM("Cancellation Reason"))
-      END as cancellation_reason,
-      CASE
-        WHEN "Cancelled By" IS NULL OR TRIM("Cancelled By") IN ('', '-', 'N/A', 'null') THEN 'unspecified'
-        ELSE LOWER(TRIM("Cancelled By"))
-      END as cancelled_by,
-      trim(both '"' from COALESCE("Menu Items", '')) as menu_items_summary,
-      COALESCE(TRY_CAST("Items Ordered" AS INTEGER), 1) as items_ordered,
-      TRY_STRPTIME("Created At", '%B %d, %Y %I:%M:%S%p') as created_at,
-      TRY_STRPTIME("Delivered At", '%B %d, %Y %I:%M:%S%p') as delivered_at
-    FROM read_csv_auto('${escSql(filePath)}', ignore_errors=true);
-  `);
+  const content = fs.readFileSync(filePath, "utf-8");
+  const rawRecords = parseCsvRecords(content);
 
-  const statRes = await conn.run(`
-    SELECT 
-      count(*) as cnt,
-      COALESCE(sum(CASE WHEN UPPER(TRIM(status)) NOT IN ('CANCELLED', 'CANCELED') THEN gross_amount ELSE 0 END), 0) as total_gross,
-      cast(min(created_at) as varchar) as min_ts,
-      cast(max(created_at) as varchar) as max_ts,
-      COALESCE(sum(CASE WHEN UPPER(TRIM(status)) IN ('CANCELLED', 'CANCELED') THEN 1 ELSE 0 END), 0) as cancelled_cnt
-    FROM staging_upload_orders
-  `);
-  const rows = await statRes.getRows();
-  const cnt = Number(rows[0][0]);
-  const gross = Number(rows[0][1]);
-  const minTs = rows[0][2] ? String(rows[0][2]) : null;
-  const maxTs = rows[0][3] ? String(rows[0][3]) : null;
-  const cancelledCnt = Number(rows[0][4] ?? 0);
+  interface StagedKlikitOrder {
+    dedup_id: string;
+    order_id: string;
+    external_id: string;
+    short_id: string;
+    provider: string;
+    brand: string;
+    branch: string;
+    status: string;
+    gross_amount: number;
+    net_payout: number;
+    merchant_promo_burn: number;
+    provider_promo_burn: number;
+    delivery_fee: number;
+    net_sales: number;
+    net_realization_rate: number;
+    order_type: string;
+    meal_prep_time_raw: string | null;
+    prep_time_minutes: number | null;
+    kpt_sla_breach: boolean;
+    kpt_red_alert: boolean;
+    cancellation_reason: string;
+    cancelled_by: string;
+    menu_items_summary: string;
+    items_ordered: number;
+    created_at: string | null;
+    delivered_at: string | null;
+  }
 
-  const checkRes = await conn.run(`
-    WITH staged AS (
-      SELECT md5(concat_ws(':', coalesce(provider, ''), coalesce(branch, ''), coalesce(order_id, ''), coalesce(strftime(created_at, '%Y-%m-%d %H:%M:%S'), ''))) as dedup_id
-      FROM staging_upload_orders
-    )
-    SELECT
-      count(*) as total_staged,
-      count(fo.dedup_id) as existing_dupes,
-      count(*) - count(fo.dedup_id) as new_orders
-    FROM staged s
-    LEFT JOIN fact_orders fo ON s.dedup_id = fo.dedup_id
-  `);
-  const checkRows = await checkRes.getRows();
-  const existingDupes = Number(checkRows[0][1]);
-  const newOrders = Number(checkRows[0][2]);
+  const stagedOrders: StagedKlikitOrder[] = [];
+  let gross = 0;
+  let minTs: string | null = null;
+  let maxTs: string | null = null;
+  let cancelledCnt = 0;
 
-  await conn.run(`
-    INSERT INTO fact_orders (
-      dedup_id,
-      order_id,
-      external_id,
-      short_id,
+  for (const r of rawRecords) {
+    const orderId = (r["Order ID"] || "").trim();
+    if (!orderId) continue;
+    const externalId = (r["External ID"] || "").trim();
+    const shortId = (r["Short ID"] || "").trim();
+    const rawProvider = (r["Provider"] || "").trim();
+    const lowerProv = rawProvider.toLowerCase();
+    const provider = lowerProv.includes("grab")
+      ? "GrabFood"
+      : lowerProv.includes("go")
+        ? "GoFood"
+        : rawProvider;
+    const brand = (r["Brand"] || "").replace(/^"+|"+$/g, "").trim();
+    const branch = (r["Branch"] || "").trim();
+    const status = (r["Status"] || "").trim();
+    const upperStatus = status.toUpperCase();
+    const isCancelled = upperStatus === "CANCELLED" || upperStatus === "CANCELED";
+
+    const grossAmount = parseFloat(r["Gross Order Value"]) || 0;
+    const netPayout = parseFloat(r["Net Order Value"]) || 0;
+    const merchantPromo = parseFloat(r["Merchant Discount"]) || 0;
+    const providerPromo = parseFloat(r["Provider Discount"]) || 0;
+    const deliveryFee = parseFloat(r["Delivery Fee"]) || 0;
+    const netSales = grossAmount - merchantPromo;
+    const netRealizationRate = grossAmount > 0 ? (netPayout / grossAmount) * 100.0 : 0.0;
+    const orderType = (r["Order Type"] || "").trim();
+    const mealPrepRaw = (r["Meal Preparation Time"] || "").trim() || null;
+    const prepMinutes = parsePrepTimeMinutes(mealPrepRaw || undefined);
+
+    const lowerBranch = branch.toLowerCase();
+    const kptSlaBreach =
+      prepMinutes !== null &&
+      ((lowerBranch === "kemang" && prepMinutes > 12.0) ||
+        (lowerBranch === "greenville" && prepMinutes > 15.0));
+    const kptRedAlert = prepMinutes !== null && prepMinutes > 20.0;
+
+    const rawCancelReason = (r["Cancellation Reason"] || "").trim();
+    const cancellationReason =
+      !rawCancelReason || ["-", "N/A", "null"].includes(rawCancelReason)
+        ? "UNSPECIFIED_PLATFORM_CANCEL"
+        : rawCancelReason.toUpperCase();
+
+    const rawCancelledBy = (r["Cancelled By"] || "").trim();
+    const cancelledBy =
+      !rawCancelledBy || ["-", "N/A", "null"].includes(rawCancelledBy)
+        ? "unspecified"
+        : rawCancelledBy.toLowerCase();
+
+    const menuItemsSummary = (r["Menu Items"] || "").replace(/^"+|"+$/g, "").trim();
+    const itemsOrdered = parseInt(r["Items Ordered"], 10) || 1;
+    const createdAt = parseKlikitTimestamp(r["Created At"]);
+    const deliveredAt = parseKlikitTimestamp(r["Delivered At"]);
+
+    if (!isCancelled) {
+      gross += grossAmount;
+    } else {
+      cancelledCnt++;
+    }
+
+    if (createdAt) {
+      if (!minTs || createdAt < minTs) minTs = createdAt;
+      if (!maxTs || createdAt > maxTs) maxTs = createdAt;
+    }
+
+    const dedupId = md5Hex(
+      `${provider}:${branch}:${orderId}:${createdAt || ""}`
+    );
+
+    stagedOrders.push({
+      dedup_id: dedupId,
+      order_id: orderId,
+      external_id: externalId,
+      short_id: shortId,
       provider,
       brand,
       branch,
       status,
-      gross_amount,
-      net_payout,
-      merchant_promo_burn,
-      provider_promo_burn,
-      delivery_fee,
-      net_sales,
-      net_realization_rate,
-      order_type,
-      meal_prep_time_raw,
-      prep_time_minutes,
-      kpt_sla_breach,
-      kpt_red_alert,
-      created_at,
-      delivered_at,
-      source_file,
-      ingested_at
-    )
-    SELECT
-      md5(concat_ws(':', coalesce(provider, ''), coalesce(branch, ''), coalesce(order_id, ''), coalesce(strftime(created_at, '%Y-%m-%d %H:%M:%S'), ''))) as dedup_id,
-      order_id,
-      external_id,
-      short_id,
-      provider,
-      brand,
-      branch,
-      status,
-      gross_amount,
-      net_payout,
-      merchant_promo_burn,
-      provider_promo_burn,
-      delivery_fee,
-      (gross_amount - merchant_promo_burn) as net_sales,
-      CASE WHEN gross_amount > 0 THEN (net_payout / gross_amount) * 100.0 ELSE 0.0 END as net_realization_rate,
-      order_type,
-      meal_prep_time_raw,
-      prep_time_minutes,
-      CASE 
-        WHEN LOWER(branch) = 'kemang' AND prep_time_minutes > 12.0 THEN TRUE 
-        WHEN LOWER(branch) = 'greenville' AND prep_time_minutes > 15.0 THEN TRUE 
-        ELSE FALSE 
-      END as kpt_sla_breach,
-      CASE WHEN prep_time_minutes > 20.0 THEN TRUE ELSE FALSE END as kpt_red_alert,
-      created_at,
-      delivered_at,
-      '${escSql(canonicalName)}' as source_file,
-      CURRENT_TIMESTAMP as ingested_at
-    FROM staging_upload_orders
-    ON CONFLICT (dedup_id) DO UPDATE SET
-      provider = EXCLUDED.provider,
-      status = EXCLUDED.status,
-      gross_amount = EXCLUDED.gross_amount,
-      net_payout = EXCLUDED.net_payout,
-      net_sales = EXCLUDED.net_sales,
-      merchant_promo_burn = EXCLUDED.merchant_promo_burn,
-      provider_promo_burn = EXCLUDED.provider_promo_burn,
-      prep_time_minutes = EXCLUDED.prep_time_minutes,
-      kpt_sla_breach = EXCLUDED.kpt_sla_breach,
-      kpt_red_alert = EXCLUDED.kpt_red_alert,
-      delivered_at = EXCLUDED.delivered_at,
-      source_file = EXCLUDED.source_file,
-      ingested_at = EXCLUDED.ingested_at;
-  `);
+      gross_amount: grossAmount,
+      net_payout: netPayout,
+      merchant_promo_burn: merchantPromo,
+      provider_promo_burn: providerPromo,
+      delivery_fee: deliveryFee,
+      net_sales: netSales,
+      net_realization_rate: netRealizationRate,
+      order_type: orderType,
+      meal_prep_time_raw: mealPrepRaw,
+      prep_time_minutes: prepMinutes,
+      kpt_sla_breach: kptSlaBreach,
+      kpt_red_alert: kptRedAlert,
+      cancellation_reason: cancellationReason,
+      cancelled_by: cancelledBy,
+      menu_items_summary: menuItemsSummary,
+      items_ordered: itemsOrdered,
+      created_at: createdAt,
+      delivered_at: deliveredAt,
+    });
+  }
 
-  await conn.run(`
-    INSERT INTO dim_order_cancellations (
-      order_id, external_id, short_id, provider, brand, branch, status,
-      gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
-      cancellation_reason, cancelled_by, menu_items_summary, items_ordered,
-      meal_prep_time_raw, prep_time_minutes, created_at, source_file
-    )
-    SELECT
-      CAST(order_id AS VARCHAR),
-      CAST(external_id AS VARCHAR),
-      CAST(short_id AS VARCHAR),
-      provider,
-      brand,
-      branch,
-      UPPER(TRIM(status)),
-      COALESCE(gross_amount, 0),
-      COALESCE(net_payout, 0),
-      COALESCE(merchant_promo_burn, 0),
-      COALESCE(provider_promo_burn, 0),
-      cancellation_reason,
-      cancelled_by,
-      menu_items_summary,
-      items_ordered,
-      COALESCE(meal_prep_time_raw, 'N/A'),
-      prep_time_minutes,
-      created_at,
-      '${escSql(canonicalName)}'
-    FROM staging_upload_orders
-    WHERE UPPER(TRIM(status)) IN ('CANCELLED', 'CANCELED')
-    ON CONFLICT (order_id) DO UPDATE SET
-      provider = EXCLUDED.provider,
-      brand = EXCLUDED.brand,
-      branch = EXCLUDED.branch,
-      status = EXCLUDED.status,
-      gross_amount = EXCLUDED.gross_amount,
-      net_payout = EXCLUDED.net_payout,
-      merchant_promo_burn = EXCLUDED.merchant_promo_burn,
-      provider_promo_burn = EXCLUDED.provider_promo_burn,
-      cancellation_reason = EXCLUDED.cancellation_reason,
-      cancelled_by = EXCLUDED.cancelled_by,
-      menu_items_summary = EXCLUDED.menu_items_summary,
-      items_ordered = EXCLUDED.items_ordered,
-      meal_prep_time_raw = EXCLUDED.meal_prep_time_raw,
-      prep_time_minutes = EXCLUDED.prep_time_minutes,
-      created_at = EXCLUDED.created_at,
-      source_file = EXCLUDED.source_file;
-  `);
+  const cnt = stagedOrders.length;
+  let existingDupes = 0;
+  for (let i = 0; i < stagedOrders.length; i += 200) {
+    const idChunk = stagedOrders
+      .slice(i, i + 200)
+      .map((o) => `'${escSql(o.dedup_id)}'`)
+      .join(",");
+    const checkRes = await conn.run(`
+      SELECT count(*) FROM fact_orders WHERE dedup_id IN (${idChunk})
+    `);
+    const checkRows = await checkRes.getRows();
+    existingDupes += Number(checkRows[0]?.[0] ?? 0);
+  }
+  const newOrders = Math.max(0, cnt - existingDupes);
 
-  await conn.run(`CHECKPOINT;`);
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < stagedOrders.length; i += BATCH_SIZE) {
+    const chunk = stagedOrders.slice(i, i + BATCH_SIZE);
+    const valuesSql = chunk
+      .map(
+        (o) => `(
+          '${escSql(o.dedup_id)}',
+          '${escSql(o.order_id)}',
+          '${escSql(o.external_id)}',
+          '${escSql(o.short_id)}',
+          '${escSql(o.provider)}',
+          '${escSql(o.brand)}',
+          '${escSql(o.branch)}',
+          '${escSql(o.status)}',
+          ${o.gross_amount},
+          ${o.net_payout},
+          ${o.merchant_promo_burn},
+          ${o.provider_promo_burn},
+          ${o.delivery_fee},
+          ${o.net_sales},
+          ${o.net_realization_rate},
+          '${escSql(o.order_type)}',
+          ${o.meal_prep_time_raw ? `'${escSql(o.meal_prep_time_raw)}'` : "NULL"},
+          ${o.prep_time_minutes !== null ? o.prep_time_minutes : "NULL"},
+          ${o.kpt_sla_breach ? "TRUE" : "FALSE"},
+          ${o.kpt_red_alert ? "TRUE" : "FALSE"},
+          ${o.created_at ? `TIMESTAMP '${escSql(o.created_at)}'` : "NULL"},
+          ${o.delivered_at ? `TIMESTAMP '${escSql(o.delivered_at)}'` : "NULL"},
+          '${escSql(canonicalName)}',
+          CURRENT_TIMESTAMP
+        )`
+      )
+      .join(",\n");
+
+    await conn.run(`
+      INSERT INTO fact_orders (
+        dedup_id, order_id, external_id, short_id, provider, brand, branch,
+        status, gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
+        delivery_fee, net_sales, net_realization_rate, order_type,
+        meal_prep_time_raw, prep_time_minutes, kpt_sla_breach, kpt_red_alert,
+        created_at, delivered_at, source_file, ingested_at
+      )
+      VALUES ${valuesSql}
+      ON CONFLICT (dedup_id) DO UPDATE SET
+        provider = EXCLUDED.provider,
+        status = EXCLUDED.status,
+        gross_amount = EXCLUDED.gross_amount,
+        net_payout = EXCLUDED.net_payout,
+        net_sales = EXCLUDED.net_sales,
+        merchant_promo_burn = EXCLUDED.merchant_promo_burn,
+        provider_promo_burn = EXCLUDED.provider_promo_burn,
+        prep_time_minutes = EXCLUDED.prep_time_minutes,
+        kpt_sla_breach = EXCLUDED.kpt_sla_breach,
+        kpt_red_alert = EXCLUDED.kpt_red_alert,
+        delivered_at = EXCLUDED.delivered_at,
+        source_file = EXCLUDED.source_file,
+        ingested_at = EXCLUDED.ingested_at;
+    `);
+  }
+
+  const cancelledOrders = stagedOrders.filter((o) =>
+    ["CANCELLED", "CANCELED"].includes(o.status.trim().toUpperCase())
+  );
+  for (let i = 0; i < cancelledOrders.length; i += 50) {
+    const chunk = cancelledOrders.slice(i, i + 50);
+    const valuesSql = chunk
+      .map(
+        (o) => `(
+          '${escSql(o.order_id)}',
+          '${escSql(o.external_id)}',
+          '${escSql(o.short_id)}',
+          '${escSql(o.provider)}',
+          '${escSql(o.brand)}',
+          '${escSql(o.branch)}',
+          '${escSql(o.status.trim().toUpperCase())}',
+          ${o.gross_amount},
+          ${o.net_payout},
+          ${o.merchant_promo_burn},
+          ${o.provider_promo_burn},
+          '${escSql(o.cancellation_reason)}',
+          '${escSql(o.cancelled_by)}',
+          '${escSql(o.menu_items_summary)}',
+          ${o.items_ordered},
+          '${escSql(o.meal_prep_time_raw || "N/A")}',
+          ${o.prep_time_minutes !== null ? o.prep_time_minutes : "NULL"},
+          ${o.created_at ? `TIMESTAMP '${escSql(o.created_at)}'` : "NULL"},
+          '${escSql(canonicalName)}'
+        )`
+      )
+      .join(",\n");
+
+    await conn.run(`
+      INSERT INTO dim_order_cancellations (
+        order_id, external_id, short_id, provider, brand, branch, status,
+        gross_amount, net_payout, merchant_promo_burn, provider_promo_burn,
+        cancellation_reason, cancelled_by, menu_items_summary, items_ordered,
+        meal_prep_time_raw, prep_time_minutes, created_at, source_file
+      )
+      VALUES ${valuesSql}
+      ON CONFLICT (order_id) DO UPDATE SET
+        provider = EXCLUDED.provider,
+        brand = EXCLUDED.brand,
+        branch = EXCLUDED.branch,
+        status = EXCLUDED.status,
+        gross_amount = EXCLUDED.gross_amount,
+        net_payout = EXCLUDED.net_payout,
+        merchant_promo_burn = EXCLUDED.merchant_promo_burn,
+        provider_promo_burn = EXCLUDED.provider_promo_burn,
+        cancellation_reason = EXCLUDED.cancellation_reason,
+        cancelled_by = EXCLUDED.cancelled_by,
+        menu_items_summary = EXCLUDED.menu_items_summary,
+        items_ordered = EXCLUDED.items_ordered,
+        meal_prep_time_raw = EXCLUDED.meal_prep_time_raw,
+        prep_time_minutes = EXCLUDED.prep_time_minutes,
+        created_at = EXCLUDED.created_at,
+        source_file = EXCLUDED.source_file;
+    `);
+  }
 
   let msg = `Saved as "${canonicalName}". `;
   if (newOrders === 0 && cnt > 0) {
@@ -934,100 +1048,134 @@ async function ingestKlikitItems(
   originalName: string,
   sizeBytes: number
 ): Promise<IngestSummary> {
-  await conn.run(`
-    CREATE OR REPLACE TEMP TABLE staging_upload_items AS
-    SELECT
-      "Order ID" as order_id,
-      "External ID" as external_id,
-      CASE
-        WHEN LOWER("Provider") LIKE '%grab%' THEN 'GrabFood'
-        WHEN LOWER("Provider") LIKE '%go%' THEN 'GoFood'
-        ELSE "Provider"
-      END as provider,
-      trim(both '"' from "Brand") as brand,
-      "Branch" as branch,
-      trim(both '"' from "Menu Items") as item_name,
-      "Menu Categories" as category,
-      TRY_CAST("Item Quantity" AS DOUBLE) as item_qty,
-      TRY_CAST("Item Sale Price" AS DOUBLE) as item_price,
-      TRY_STRPTIME("Created At", '%B %d, %Y %I:%M:%S%p') as created_at,
-      "Status" as status
-    FROM read_csv_auto('${escSql(filePath)}', ignore_errors=true);
-  `);
+  const content = fs.readFileSync(filePath, "utf-8");
+  const rawRecords = parseCsvRecords(content);
 
-  const statRes = await conn.run(`
-    SELECT 
-      count(*) as cnt,
-      COALESCE(sum(item_qty * item_price), 0) as total_val,
-      cast(min(created_at) as varchar) as min_ts,
-      cast(max(created_at) as varchar) as max_ts
-    FROM staging_upload_items
-  `);
-  const rows = await statRes.getRows();
-  const cnt = Number(rows[0][0]);
-  const gross = Number(rows[0][1]);
-  const minTs = rows[0][2] ? String(rows[0][2]) : null;
-  const maxTs = rows[0][3] ? String(rows[0][3]) : null;
+  interface StagedKlikitItem {
+    dedup_id: string;
+    order_id: string;
+    external_id: string;
+    provider: string;
+    brand: string;
+    branch: string;
+    item_name: string;
+    category: string;
+    item_qty: number;
+    item_price: number;
+    total_price: number;
+    created_at: string | null;
+    status: string;
+  }
 
-  const checkRes = await conn.run(`
-    WITH staged AS (
-      SELECT md5(concat_ws(':', coalesce(provider, ''), coalesce(branch, ''), coalesce(order_id, ''), coalesce(item_name, ''), coalesce(cast(item_qty as varchar), ''))) as dedup_id
-      FROM staging_upload_items
-    )
-    SELECT
-      count(*) as total_staged,
-      count(fo.dedup_id) as existing_dupes,
-      count(*) - count(fo.dedup_id) as new_items
-    FROM staged s
-    LEFT JOIN fact_order_items fo ON s.dedup_id = fo.dedup_id
-  `);
-  const checkRows = await checkRes.getRows();
-  const existingDupes = Number(checkRows[0][1]);
-  const newItems = Number(checkRows[0][2]);
+  const stagedItems: StagedKlikitItem[] = [];
+  let gross = 0;
+  let minTs: string | null = null;
+  let maxTs: string | null = null;
 
-  await conn.run(`
-    INSERT INTO fact_order_items (
-      dedup_id,
-      order_id,
-      external_id,
+  for (const r of rawRecords) {
+    const orderId = (r["Order ID"] || "").trim();
+    if (!orderId) continue;
+    const externalId = (r["External ID"] || "").trim();
+    const rawProvider = (r["Provider"] || "").trim();
+    const lowerProv = rawProvider.toLowerCase();
+    const provider = lowerProv.includes("grab")
+      ? "GrabFood"
+      : lowerProv.includes("go")
+        ? "GoFood"
+        : rawProvider;
+    const brand = (r["Brand"] || "").replace(/^"+|"+$/g, "").trim();
+    const branch = (r["Branch"] || "").trim();
+    const itemName = (r["Menu Items"] || "").replace(/^"+|"+$/g, "").trim();
+    const category = (r["Menu Categories"] || "").replace(/^"+|"+$/g, "").trim();
+    const itemQty = parseFloat(r["Item Quantity"]) || 0;
+    const itemPrice = parseFloat(r["Item Sale Price"]) || 0;
+    const totalPrice = itemQty * itemPrice;
+    const createdAt = parseKlikitTimestamp(r["Created At"]);
+    const status = (r["Status"] || "").trim();
+
+    gross += totalPrice;
+    if (createdAt) {
+      if (!minTs || createdAt < minTs) minTs = createdAt;
+      if (!maxTs || createdAt > maxTs) maxTs = createdAt;
+    }
+
+    const dedupId = md5Hex(
+      `${provider}:${branch}:${orderId}:${itemName}:${formatDuckDbDoubleForMd5(itemQty)}`
+    );
+
+    stagedItems.push({
+      dedup_id: dedupId,
+      order_id: orderId,
+      external_id: externalId,
       provider,
       brand,
       branch,
-      item_name,
+      item_name: itemName,
       category,
-      item_qty,
-      item_price,
-      total_price,
-      created_at,
+      item_qty: itemQty,
+      item_price: itemPrice,
+      total_price: totalPrice,
+      created_at: createdAt,
       status,
-      source_file,
-      ingested_at
-    )
-    SELECT
-      md5(concat_ws(':', coalesce(provider, ''), coalesce(branch, ''), coalesce(order_id, ''), coalesce(item_name, ''), coalesce(cast(item_qty as varchar), ''))) as dedup_id,
-      order_id,
-      external_id,
-      provider,
-      brand,
-      branch,
-      item_name,
-      category,
-      item_qty,
-      item_price,
-      (item_qty * item_price) as total_price,
-      created_at,
-      status,
-      '${escSql(canonicalName)}' as source_file,
-      CURRENT_TIMESTAMP as ingested_at
-    FROM staging_upload_items
-    ON CONFLICT (dedup_id) DO UPDATE SET
-      provider = EXCLUDED.provider,
-      status = EXCLUDED.status,
-      item_price = EXCLUDED.item_price,
-      total_price = EXCLUDED.total_price,
-      source_file = EXCLUDED.source_file,
-      ingested_at = EXCLUDED.ingested_at;
-  `);
+    });
+  }
+
+  const cnt = stagedItems.length;
+  let existingDupes = 0;
+  for (let i = 0; i < stagedItems.length; i += 200) {
+    const idChunk = stagedItems
+      .slice(i, i + 200)
+      .map((it) => `'${escSql(it.dedup_id)}'`)
+      .join(",");
+    const checkRes = await conn.run(`
+      SELECT count(*) FROM fact_order_items WHERE dedup_id IN (${idChunk})
+    `);
+    const checkRows = await checkRes.getRows();
+    existingDupes += Number(checkRows[0]?.[0] ?? 0);
+  }
+  const newItems = Math.max(0, cnt - existingDupes);
+
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < stagedItems.length; i += BATCH_SIZE) {
+    const chunk = stagedItems.slice(i, i + BATCH_SIZE);
+    const valuesSql = chunk
+      .map(
+        (it) => `(
+          '${escSql(it.dedup_id)}',
+          '${escSql(it.order_id)}',
+          '${escSql(it.external_id)}',
+          '${escSql(it.provider)}',
+          '${escSql(it.brand)}',
+          '${escSql(it.branch)}',
+          '${escSql(it.item_name)}',
+          '${escSql(it.category)}',
+          ${it.item_qty},
+          ${it.item_price},
+          ${it.total_price},
+          ${it.created_at ? `TIMESTAMP '${escSql(it.created_at)}'` : "NULL"},
+          '${escSql(it.status)}',
+          '${escSql(canonicalName)}',
+          CURRENT_TIMESTAMP
+        )`
+      )
+      .join(",\n");
+
+    await conn.run(`
+      INSERT INTO fact_order_items (
+        dedup_id, order_id, external_id, provider, brand, branch,
+        item_name, category, item_qty, item_price, total_price,
+        created_at, status, source_file, ingested_at
+      )
+      VALUES ${valuesSql}
+      ON CONFLICT (dedup_id) DO UPDATE SET
+        provider = EXCLUDED.provider,
+        status = EXCLUDED.status,
+        item_price = EXCLUDED.item_price,
+        total_price = EXCLUDED.total_price,
+        source_file = EXCLUDED.source_file,
+        ingested_at = EXCLUDED.ingested_at;
+    `);
+  }
 
   let msg = `Saved as "${canonicalName}". `;
   if (newItems === 0 && cnt > 0) {

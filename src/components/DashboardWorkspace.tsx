@@ -9,6 +9,8 @@ import type {
   ChannelStats,
   TopItem,
   HourlyTrend,
+  DailyTrendPoint,
+  PrimeCostSummary,
   HeroRecipeBomSummary,
   KitchenSlaDiagnostic,
   CanceledOrdersDiagnostic,
@@ -23,9 +25,14 @@ import {
   BrandRevenueChart,
   ChannelPieChart,
   HourlyOrderChart,
+  DailyRevenueTrendChart,
 } from "@/components/Charts";
 import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
 import { CanceledOrderInspector } from "@/components/CanceledOrderInspector";
+import {
+  RecipeBomModal,
+  type InitialRecipeBomTarget,
+} from "@/components/RecipeBomModal";
 import {
   DollarSign,
   TrendingUp,
@@ -41,6 +48,10 @@ import {
   LayoutGrid,
   Table2,
   Layers,
+  CalendarRange,
+  Wallet,
+  Users,
+  SlidersHorizontal,
 } from "lucide-react";
 
 interface DashboardWorkspaceProps {
@@ -50,6 +61,8 @@ interface DashboardWorkspaceProps {
   channels: ChannelStats[];
   topItems: TopItem[];
   hourly: HourlyTrend[];
+  dailyTrend?: DailyTrendPoint[];
+  primeCost?: PrimeCostSummary;
   heroBoms: HeroRecipeBomSummary[];
   slaDiagnostic: KitchenSlaDiagnostic;
   cancellationDiagnostic: CanceledOrdersDiagnostic;
@@ -66,6 +79,42 @@ function formatRupiah(amount: number): string {
   }).format(amount);
 }
 
+function DeltaBadge({
+  value,
+  suffix = "%",
+  invertGood = false,
+  label,
+}: {
+  value: number | null | undefined;
+  suffix?: string;
+  invertGood?: boolean;
+  label?: string;
+}) {
+  if (value === null || value === undefined) return null;
+  const isPositive = value > 0;
+  const isZero = value === 0;
+  const isGood = isZero ? true : invertGood ? !isPositive : isPositive;
+
+  return (
+    <span
+      title={label ? `${label}: ${isPositive ? "+" : ""}${value}${suffix}` : undefined}
+      className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded ${
+        isZero
+          ? "badge-neutral"
+          : isGood
+          ? "badge-emerald"
+          : "badge-rose"
+      }`}
+    >
+      <span>
+        {isPositive ? "▲ +" : value < 0 ? "▼ " : ""}
+        {value}
+        {suffix}
+      </span>
+    </span>
+  );
+}
+
 export function DashboardWorkspace({
   summary,
   brands,
@@ -73,22 +122,29 @@ export function DashboardWorkspace({
   channels,
   topItems,
   hourly,
+  dailyTrend = [],
+  primeCost,
   heroBoms,
   slaDiagnostic,
   cancellationDiagnostic,
   filterQs,
 }: DashboardWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+  const [bomModalOpen, setBomModalOpen] = useState(false);
+  const [bomModalTarget, setBomModalTarget] =
+    useState<InitialRecipeBomTarget | null>(null);
 
   const showOverview = activeTab === "overview" || activeTab === "all";
   const showEconomics = activeTab === "economics" || activeTab === "all";
   const showSla = activeTab === "sla" || activeTab === "all";
   const showCancellations = activeTab === "cancellations" || activeTab === "all";
 
+  const deltas = summary.deltas;
+
   return (
     <div className="space-y-6">
       {/* =========================================================================
-          Executive KPI Telemetry Deck (Interactive Action Cards)
+          Executive KPI Telemetry Deck (Interactive Action Cards + PoP Deltas)
           ========================================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Metric 1: Gross GMV */}
@@ -96,25 +152,32 @@ export function DashboardWorkspace({
           onClick={() => setActiveTab("overview")}
           className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-blue cursor-pointer group"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
               Gross GMV
             </span>
-            <div className="p-1.5 rounded-lg badge-blue">
-              <DollarSign className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.gmvDeltaPct}
+                suffix="%"
+                label={deltas?.comparisonLabel}
+              />
+              <div className="p-1.5 rounded-lg badge-blue">
+                <DollarSign className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="mt-3">
             <div className="text-2xl sm:text-[26px] font-bold text-[var(--text-primary)] tracking-tight tabular-nums font-display">
               {formatRupiah(summary.total_gross_gmv)}
             </div>
-            <div className="text-xs text-[var(--text-secondary)] mt-2 flex items-center gap-1.5 font-mono">
-              <ShoppingBag className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
-              <span>
+            <div className="text-xs text-[var(--text-secondary)] mt-2 flex items-center justify-between gap-1.5 font-mono">
+              <span className="flex items-center gap-1">
+                <ShoppingBag className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
                 <strong className="text-[var(--text-primary)]">
                   {summary.total_orders.toLocaleString()}
                 </strong>{" "}
-                orders · AOV{" "}
+                ord · AOV{" "}
                 <strong className="text-[var(--text-primary)]">
                   {formatRupiah(summary.avg_order_value)}
                 </strong>
@@ -128,12 +191,19 @@ export function DashboardWorkspace({
           onClick={() => setActiveTab("overview")}
           className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-emerald cursor-pointer group"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
               Net Cash Realized
             </span>
-            <div className="p-1.5 rounded-lg badge-emerald">
-              <TrendingUp className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.netPayoutDeltaPct}
+                suffix="%"
+                label={deltas?.comparisonLabel}
+              />
+              <div className="p-1.5 rounded-lg badge-emerald">
+                <TrendingUp className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="mt-3">
@@ -144,7 +214,9 @@ export function DashboardWorkspace({
               <span className="font-mono font-semibold px-2 py-0.5 rounded text-xs badge-emerald">
                 {summary.net_realization_rate}% Realized
               </span>
-              <span className="text-xs text-[var(--text-muted)] font-mono">Target ≥68%</span>
+              <span className="text-xs text-[var(--text-muted)] font-mono">
+                {deltas?.comparisonLabel || "Target ≥68%"}
+              </span>
             </div>
           </div>
         </div>
@@ -154,12 +226,20 @@ export function DashboardWorkspace({
           onClick={() => setActiveTab("economics")}
           className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-rose cursor-pointer group"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
               Merchant Promo Burn
             </span>
-            <div className="p-1.5 rounded-lg badge-rose">
-              <Flame className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.promoBurnRateDeltaPts}
+                suffix="pt"
+                invertGood
+                label={deltas?.comparisonLabel}
+              />
+              <div className="p-1.5 rounded-lg badge-rose">
+                <Flame className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="mt-3">
@@ -175,7 +255,7 @@ export function DashboardWorkspace({
                 {summary.promo_burn_rate_pct}% of GMV
               </span>
               <span className="text-[11px] font-mono text-[var(--text-muted)] group-hover:text-[var(--text-primary)]">
-                Unit Matrix →
+                P&amp;L Bridge →
               </span>
             </div>
           </div>
@@ -186,12 +266,20 @@ export function DashboardWorkspace({
           onClick={() => setActiveTab("sla")}
           className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-amber cursor-pointer group"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
               Kitchen Prep / SLA
             </span>
-            <div className="p-1.5 rounded-lg badge-amber">
-              <Clock className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.slaBreachRateDeltaPts}
+                suffix="pt"
+                invertGood
+                label={deltas?.comparisonLabel}
+              />
+              <div className="p-1.5 rounded-lg badge-amber">
+                <Clock className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="mt-3">
@@ -223,12 +311,20 @@ export function DashboardWorkspace({
           onClick={() => setActiveTab("cancellations")}
           className="cockpit-panel rounded-2xl p-5 relative overflow-hidden accent-bar-terracotta cursor-pointer group"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
               Cancelled & Leakage
             </span>
-            <div className="p-1.5 rounded-lg badge-rose">
-              <Ban className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.cancelRateDeltaPts}
+                suffix="pt"
+                invertGood
+                label={deltas?.comparisonLabel}
+              />
+              <div className="p-1.5 rounded-lg badge-rose">
+                <Ban className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="mt-3">
@@ -281,7 +377,7 @@ export function DashboardWorkspace({
             }`}
           >
             <Table2 className="w-3.5 h-3.5" />
-            <span>Unit Economics & Menu BOMs</span>
+            <span>Prime Cost P&amp;L &amp; Menu BOMs</span>
           </button>
 
           <button
@@ -331,24 +427,38 @@ export function DashboardWorkspace({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            setActiveTab(activeTab === "all" ? "overview" : "all")
-          }
-          className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer self-start sm:self-auto ${
-            activeTab === "all"
-              ? "bg-[var(--text-primary)] text-[var(--bg-surface)]"
-              : "bg-[var(--bg-surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>{activeTab === "all" ? "Showing All Panels" : "Expand All Panels"}</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setBomModalTarget(null);
+              setBomModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold badge-emerald hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Edit BOMs / Map SKUs</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              setActiveTab(activeTab === "all" ? "overview" : "all")
+            }
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
+              activeTab === "all"
+                ? "bg-[var(--text-primary)] text-[var(--bg-surface)]"
+                : "bg-[var(--bg-surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{activeTab === "all" ? "Showing All Panels" : "Expand All Panels"}</span>
+          </button>
+        </div>
       </div>
 
       {/* =========================================================================
-          TAB 1: EXECUTIVE OVERVIEW (Portfolio, Charts, Outlets, Velocity)
+          TAB 1: EXECUTIVE OVERVIEW (Portfolio, Daily Trend, Charts, Outlets, Velocity)
           ========================================================================= */}
       {showOverview && (
         <div className="space-y-6">
@@ -404,6 +514,38 @@ export function DashboardWorkspace({
               })}
             </div>
           </div>
+
+          {/* Track 2: Daily Revenue, Net Realization & Order Velocity Time-Series */}
+          {dailyTrend.length > 0 && (
+            <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <CalendarRange className="w-4 h-4 text-sky-500" />
+                    <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
+                      Daily Revenue, Net Settlement &amp; Order Trajectory
+                    </h2>
+                    <span className="text-xs font-mono px-2 py-0.5 rounded badge-sky font-semibold">
+                      {dailyTrend.length} Active Days
+                    </span>
+                    {deltas?.gmvDeltaPct !== null && deltas?.gmvDeltaPct !== undefined && (
+                      <span className="text-xs font-mono text-[var(--text-muted)]">
+                        PoP Benchmark: {deltas.comparisonLabel}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                    Day-over-day Gross GMV, Net Cash Realization, and completed order velocity across selected outlets
+                  </p>
+                </div>
+                <span className="text-xs text-[var(--text-muted)] font-mono">
+                  Left Axis: IDR · Right Axis: Tickets
+                </span>
+              </div>
+
+              <DailyRevenueTrendChart data={dailyTrend} />
+            </div>
+          )}
 
           {/* Visual Analytics Grid: Brand Financials & Channel Share */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -602,8 +744,180 @@ export function DashboardWorkspace({
       )}
 
       {/* =========================================================================
-          TAB 2: UNIT ECONOMICS & MENU BOMs
+          TAB 2: PRIME COST P&L BRIDGE, UNIT ECONOMICS & MENU BOMs
           ========================================================================= */}
+      {(showOverview || showEconomics) && primeCost && (
+        <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Wallet className="w-4 h-4 text-emerald-500" />
+                <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
+                  Store P&amp;L Bridge: Prime Cost (COGS + Labor) &amp; Net Contribution Margin
+                </h2>
+                <span
+                  className={`text-xs font-mono px-2.5 py-0.5 rounded font-semibold ${
+                    primeCost.primeCostStatus === "Optimal"
+                      ? "badge-emerald"
+                      : primeCost.primeCostStatus === "Watchlist"
+                      ? "badge-amber"
+                      : "badge-rose"
+                  }`}
+                >
+                  Prime Cost: {primeCost.primeCostPctOfNetRevenue}% of Net ({primeCost.primeCostStatus})
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                {primeCost.dateSpanLabel} · Connects Theoretical Recipe COGS (<code className="font-mono">dim_recipes</code>) with Majoo POS Staff Attendance (<code className="font-mono">fact_attendance</code>)
+              </p>
+            </div>
+
+            <Link
+              href="/attendance"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold surface-well hover:bg-[var(--bg-hover)] text-[var(--text-primary)] border border-[var(--border-default)] shrink-0 self-start md:self-auto"
+            >
+              <Users className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Inspect Staff Shifts &amp; Payslips →</span>
+            </Link>
+          </div>
+
+          {/* 5-Stage P&L Waterfall Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+            {/* Step 1: Gross GMV */}
+            <div className="surface-well rounded-xl p-4 border border-[var(--border-subtle)] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)]">
+                  <span>1. Gross GMV</span>
+                  <span>100% Top-Line</span>
+                </div>
+                <div className="text-lg font-bold font-mono text-[var(--text-primary)] mt-1 tabular-nums">
+                  {formatRupiah(primeCost.grossGmv)}
+                </div>
+              </div>
+              <div className="pt-2.5 mt-2.5 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)] space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Promo Burn:</span>
+                  <span className="text-rose-500">-{formatRupiah(primeCost.merchantPromoBurn)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Platform Cut:</span>
+                  <span className="text-[var(--text-muted)]">
+                    -{formatRupiah(primeCost.platformFeesAndCommissions)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 2: Net Realized Revenue */}
+            <div className="surface-well rounded-xl p-4 border border-[var(--border-subtle)] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)]">
+                  <span>2. Net Settlement</span>
+                  <span className="text-emerald-500 font-semibold">
+                    {primeCost.netRealizationPct}% of GMV
+                  </span>
+                </div>
+                <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums">
+                  {formatRupiah(primeCost.netRevenue)}
+                </div>
+              </div>
+              <div className="pt-2.5 mt-2.5 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)]">
+                <span>100% P&amp;L Revenue Base after aggregator commissions &amp; promos</span>
+              </div>
+            </div>
+
+            {/* Step 3: Theoretical COGS */}
+            <div className="surface-well rounded-xl p-4 border border-[var(--border-subtle)] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)]">
+                  <span>3. Theoretical COGS</span>
+                  <span className="text-amber-500 font-semibold">
+                    {primeCost.cogsPctOfNetRevenue}% of Net
+                  </span>
+                </div>
+                <div className="text-lg font-bold font-mono text-amber-600 dark:text-amber-400 mt-1 tabular-nums">
+                  -{formatRupiah(primeCost.totalCogs)}
+                </div>
+              </div>
+              <div className="pt-2.5 mt-2.5 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)] space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Raw Ingredients:</span>
+                  <span>{formatRupiah(primeCost.rawFoodCost)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Packaging Cost:</span>
+                  <span>{formatRupiah(primeCost.packagingCost)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 4: Store Labor Cost */}
+            <div className="surface-well rounded-xl p-4 border border-[var(--border-subtle)] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)]">
+                  <span>4. Store Labor</span>
+                  <span className="text-sky-500 font-semibold">
+                    {primeCost.laborIncluded ? `${primeCost.laborPctOfNetRevenue}% of Net` : "N/A"}
+                  </span>
+                </div>
+                <div className="text-lg font-bold font-mono text-sky-600 dark:text-sky-400 mt-1 tabular-nums">
+                  {primeCost.laborIncluded ? `-${formatRupiah(primeCost.netLaborCost)}` : "Excluded"}
+                </div>
+              </div>
+              <div className="pt-2.5 mt-2.5 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)] space-y-0.5">
+                {primeCost.laborIncluded ? (
+                  <>
+                    <div className="flex justify-between">
+                      <span>Shifts / Staff:</span>
+                      <span>
+                        {primeCost.paidShiftsCount} sh · {primeCost.activeStaffCount} crew
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Rev / Labor Hr:</span>
+                      <span className="text-emerald-500">
+                        {formatRupiah(primeCost.revenuePerLaborHour)}/h
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <span className="text-[10px] text-[var(--text-muted)]">
+                    Majoo attendance tracks Greenville Flagship crew
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Step 5: Store Net Contribution Margin */}
+            <div className="surface-well rounded-xl p-4 border border-emerald-500/30 bg-emerald-500/[0.04] flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[var(--text-muted)]">
+                  <span>5. Net Contribution</span>
+                  <span className="badge-emerald px-1.5 py-0.2 rounded font-semibold">
+                    {primeCost.netContributionMarginPct}% of Net
+                  </span>
+                </div>
+                <div className="text-lg font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1 tabular-nums">
+                  {formatRupiah(primeCost.netContributionMarginRp)}
+                </div>
+              </div>
+              <div className="pt-2.5 mt-2.5 border-t border-[var(--border-subtle)] text-[11px] font-mono text-[var(--text-secondary)] space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Total Prime Cost:</span>
+                  <span className="font-semibold text-[var(--text-primary)]">
+                    {formatRupiah(primeCost.primeCost)} ({primeCost.primeCostPctOfNetRevenue}%)
+                  </span>
+                </div>
+                <div className="flex justify-between text-[10px] text-[var(--text-muted)]">
+                  <span>Benchmark Target:</span>
+                  <span>Prime Cost ≤ {primeCost.primeCostTargetPct}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showEconomics && (
         <div className="space-y-6">
           {/* Brand Detailed Performance Matrix Table */}
@@ -825,22 +1139,30 @@ export function DashboardWorkspace({
             <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <UtensilsCrossed className="w-4 h-4 text-[var(--accent-primary)]" />
                     <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
-                      Hero SKU Recipe BOMs & Theoretical Food Cost
+                      Hero SKU Recipe BOMs &amp; Theoretical Food Cost
                     </h2>
                     <span className="text-xs font-mono px-2 py-0.5 rounded badge-emerald font-semibold">
                       100% Vegetarian BOM
                     </span>
                   </div>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Standardized Bill of Materials joined against live SKU sales velocity
+                    Standardized Bill of Materials joined against live SKU sales velocity — click Edit BOM on any card to adjust cost assumptions
                   </p>
                 </div>
-                <span className="text-xs font-mono text-[var(--text-muted)]">
-                  Select any brand for full 4-Quadrant Menu Engineering Matrix
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBomModalTarget(null);
+                    setBomModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-semibold badge-emerald hover:opacity-90 cursor-pointer self-start sm:self-auto"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Open Full BOM Catalog</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -848,15 +1170,15 @@ export function DashboardWorkspace({
                   const theme = getBrandTheme(bom.brand);
                   const slug = brandToSlug(bom.brand);
                   return (
-                    <Link
+                    <div
                       key={bom.recipe_id}
-                      href={"/brands/" + slug + filterQs}
                       className="surface-well p-4 hover:border-[var(--border-strong)] transition-all flex flex-col justify-between space-y-3"
                     >
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
-                          <span
-                            className="text-xs font-bold flex items-center gap-1.5"
+                          <Link
+                            href={"/brands/" + slug + filterQs}
+                            className="text-xs font-bold flex items-center gap-1.5 hover:underline"
                             style={{ color: theme.primaryColor }}
                           >
                             <span
@@ -864,7 +1186,7 @@ export function DashboardWorkspace({
                               style={{ backgroundColor: theme.primaryColor }}
                             />
                             {bom.brand}
-                          </span>
+                          </Link>
                           <span className="text-[11px] font-mono px-2 py-0.5 rounded badge-emerald font-semibold">
                             {bom.delivery_food_cost_pct}% COGS
                           </span>
@@ -912,14 +1234,34 @@ export function DashboardWorkspace({
                             <strong className="text-[var(--text-primary)]">
                               {bom.realized_units_sold}
                             </strong>{" "}
-                            units
+                            u · Pkg {bom.packaging_drag_pct}%
                           </span>
-                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                            Pkg Drag: {bom.packaging_drag_pct}%
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBomModalTarget({
+                                recipe_id: bom.recipe_id,
+                                brand: bom.brand,
+                                item_name: bom.item_name,
+                                canonical_name: bom.canonical_name,
+                                category: bom.category,
+                                bom_summary: bom.bom_summary,
+                                raw_food_cost: bom.raw_food_cost,
+                                packaging_dine_in: bom.packaging_dine_in,
+                                packaging_delivery: bom.packaging_delivery,
+                                target_food_cost_pct: bom.target_food_cost_pct,
+                                is_hero_bom: true,
+                                realized_menu_price: bom.realized_menu_price,
+                              });
+                              setBomModalOpen(true);
+                            }}
+                            className="px-2 py-0.5 rounded bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border border-[var(--border-default)] text-[var(--text-primary)] font-semibold cursor-pointer"
+                          >
+                            Edit BOM
+                          </button>
                         </div>
                       </div>
-                    </Link>
+                    </div>
                   );
                 })}
               </div>
@@ -939,6 +1281,12 @@ export function DashboardWorkspace({
       {showCancellations && (
         <CanceledOrderInspector diagnostic={cancellationDiagnostic} />
       )}
+
+      <RecipeBomModal
+        isOpen={bomModalOpen}
+        onClose={() => setBomModalOpen(false)}
+        initialTarget={bomModalTarget}
+      />
     </div>
   );
 }

@@ -730,10 +730,34 @@ function copySeedToTarget(seedPath: string, targetPath: string): void {
   }
 }
 
+const DEFAULT_LAYERBASE_SQL_ENDPOINT = 'https://api.sage.cloud.layerbase.dev/sql';
 const DEFAULT_LAYERBASE_QUERY_URL =
   'https://tyfel-cockpit-poor-hedge.sage.cloud.layerbase.dev/v1/databases/36373641-c5db-463e-975c-0d636a0c92c5/query';
-const DEFAULT_LAYERBASE_API_KEY =
-  'sk_e99f065bc10daad5e8421b313838e610fa1985511e52f7498d90b4dc4afe5a0e';
+
+let envLocalLoaded = false;
+function ensureLocalEnvLoaded(): void {
+  if (envLocalLoaded) return;
+  envLocalLoaded = true;
+  if (process.env.LAYERBASE_CONNECTION_STRING || process.env.LAYERBASE_API_KEY) return;
+  try {
+    const envPath = path.join(process.cwd(), '.env.local');
+    if (!fs.existsSync(envPath)) return;
+    const content = fs.readFileSync(envPath, 'utf-8');
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eqIdx = line.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = line.slice(0, eqIdx).trim();
+      const val = line.slice(eqIdx + 1).trim().replace(/^['"]|['"]$/g, '');
+      if (key && process.env[key] === undefined) {
+        process.env[key] = val;
+      }
+    }
+  } catch {
+    // ignore env read errors
+  }
+}
 
 const STRING_ID_COLUMNS = new Set([
   'order_id',
@@ -757,7 +781,12 @@ const STRING_ID_COLUMNS = new Set([
   'day',
 ]);
 
-function normalizeLayerbaseValue(val: unknown, colName: string): unknown {
+function normalizeLayerbaseValue(val: unknown, colName: string, dataTypeID?: number): unknown {
+  // Postgres OID 20 = INT8 (BIGINT), 21 = INT2, 23 = INT4, 700 = FLOAT4, 701 = FLOAT8, 1700 = NUMERIC
+  if (typeof val === 'string' && dataTypeID && [20, 21, 23, 700, 701, 1700].includes(dataTypeID)) {
+    const num = Number(val);
+    if (!Number.isNaN(num)) return num;
+  }
   if (typeof val === 'string' && /^-?\d+$/.test(val) && !STRING_ID_COLUMNS.has(colName.toLowerCase())) {
     const num = Number(val);
     if (Number.isSafeInteger(num)) {
@@ -767,9 +796,16 @@ function normalizeLayerbaseValue(val: unknown, colName: string): unknown {
   return val;
 }
 
-function createLayerbaseHttpInstance(queryUrl: string, apiKey: string): DuckDBInstance {
-  const cleanUrl = queryUrl.trim();
-  const cleanKey = apiKey.trim();
+function createLayerbaseHttpInstance(options: {
+  sqlEndpoint?: string;
+  connectionString?: string;
+  queryUrl?: string;
+  apiKey?: string;
+}): DuckDBInstance {
+  const sqlEndpoint = (options.sqlEndpoint || DEFAULT_LAYERBASE_SQL_ENDPOINT).trim();
+  const connStr = (options.connectionString || '').trim();
+  const fallbackQueryUrl = (options.queryUrl || DEFAULT_LAYERBASE_QUERY_URL).trim();
+  const fallbackApiKey = (options.apiKey || '').trim();
 
   const conn = {
     async run(sql: string) {
@@ -781,10 +817,66 @@ function createLayerbaseHttpInstance(queryUrl: string, apiKey: string): DuckDBIn
         };
       }
 
-      const res = await fetch(cleanUrl, {
+      // Primary: Layerbase Serverless SQL HTTP Endpoint (/sql) — No 10 KB limit
+      if (sqlEndpoint && connStr) {
+        const res = await fetch(sqlEndpoint, {
+          method: 'POST',
+          headers: {
+            'Neon-Connection-String': connStr,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: sql, params: [] }),
+          cache: 'no-store',
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(`[Layerbase SQL HTTP ${res.status}] ${errBody}`);
+        }
+
+        const payload = (await res.json()) as {
+          fields?: Array<{ name: string; dataTypeID?: number }>;
+          columns?: string[];
+          rows?: unknown[][];
+          error?: string;
+        };
+
+        if (payload.error) {
+          throw new Error(`[Layerbase Query Error] ${payload.error}`);
+        }
+
+        const fields = Array.isArray(payload.fields) ? payload.fields : [];
+        const columns =
+          fields.length > 0
+            ? fields.map((f) => f.name)
+            : Array.isArray(payload.columns)
+              ? payload.columns
+              : [];
+        const typeIds = fields.map((f) => f.dataTypeID);
+        const rawRows = Array.isArray(payload.rows) ? payload.rows : [];
+        const rows: unknown[][] = rawRows.map((r) => {
+          if (Array.isArray(r)) {
+            return r.map((val, idx) => normalizeLayerbaseValue(val, columns[idx] || '', typeIds[idx]));
+          }
+          if (r && typeof r === 'object') {
+            return columns.map((c, idx) =>
+              normalizeLayerbaseValue((r as Record<string, unknown>)[c], c, typeIds[idx])
+            );
+          }
+          return [r];
+        });
+
+        return {
+          columnNames: () => columns,
+          getRows: async () => rows,
+        };
+      }
+
+      // Secondary: Management Query API (/v1/databases/:id/query)
+      const res = await fetch(fallbackQueryUrl, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${cleanKey}`,
+          Authorization: `Bearer ${fallbackApiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ query: sql }),
@@ -839,11 +931,18 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
   if (dbInstance) return dbInstance;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
-      const layerbaseUrl = process.env.LAYERBASE_QUERY_URL || DEFAULT_LAYERBASE_QUERY_URL;
-      const layerbaseKey = process.env.LAYERBASE_API_KEY || DEFAULT_LAYERBASE_API_KEY;
+      ensureLocalEnvLoaded();
+      const connectionString =
+        process.env.LAYERBASE_CONNECTION_STRING || process.env.DATABASE_URL || '';
+      const apiKey = process.env.LAYERBASE_API_KEY || '';
 
-      if (process.env.LAYERBASE_DISABLED !== 'true' && layerbaseUrl && layerbaseKey) {
-        const instance = createLayerbaseHttpInstance(layerbaseUrl, layerbaseKey);
+      if (process.env.LAYERBASE_DISABLED !== 'true' && (connectionString || apiKey)) {
+        const instance = createLayerbaseHttpInstance({
+          sqlEndpoint: process.env.LAYERBASE_SQL_ENDPOINT || DEFAULT_LAYERBASE_SQL_ENDPOINT,
+          connectionString,
+          queryUrl: process.env.LAYERBASE_QUERY_URL || DEFAULT_LAYERBASE_QUERY_URL,
+          apiKey,
+        });
         dbInstance = instance;
         return instance;
       }

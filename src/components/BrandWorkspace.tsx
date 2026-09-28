@@ -7,9 +7,14 @@ import {
   SkuParetoBarChart,
   BrandHourlyKptChart,
   BrandChannelChart,
+  DailyRevenueTrendChart,
 } from "@/components/Charts";
 import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
 import { CanceledOrderInspector } from "@/components/CanceledOrderInspector";
+import {
+  RecipeBomModal,
+  type InitialRecipeBomTarget,
+} from "@/components/RecipeBomModal";
 import {
   Flame,
   ShoppingBag,
@@ -21,6 +26,8 @@ import {
   UtensilsCrossed,
   BarChart3,
   Layers,
+  CalendarRange,
+  SlidersHorizontal,
 } from "lucide-react";
 
 interface BrandWorkspaceProps {
@@ -37,8 +44,47 @@ function formatRupiah(amount: number): string {
   }).format(amount);
 }
 
+function DeltaBadge({
+  value,
+  suffix = "%",
+  invertGood = false,
+  label,
+}: {
+  value: number | null | undefined;
+  suffix?: string;
+  invertGood?: boolean;
+  label?: string;
+}) {
+  if (value === null || value === undefined) return null;
+  const isPositive = value > 0;
+  const isZero = value === 0;
+  const isGood = isZero ? true : invertGood ? !isPositive : isPositive;
+
+  return (
+    <span
+      title={label ? `${label}: ${isPositive ? "+" : ""}${value}${suffix}` : undefined}
+      className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded ${
+        isZero
+          ? "badge-neutral"
+          : isGood
+          ? "badge-emerald"
+          : "badge-rose"
+      }`}
+    >
+      <span>
+        {isPositive ? "▲ +" : value < 0 ? "▼ " : ""}
+        {value}
+        {suffix}
+      </span>
+    </span>
+  );
+}
+
 export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<BrandTab>("velocity");
+  const [bomModalOpen, setBomModalOpen] = useState(false);
+  const [bomModalTarget, setBomModalTarget] =
+    useState<InitialRecipeBomTarget | null>(null);
 
   const {
     brandName,
@@ -51,6 +97,7 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
     channels,
     branches,
     hourly,
+    dailyTrend = [],
     paretoSummary,
   } = brandData;
 
@@ -59,10 +106,12 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
   const showSla = activeTab === "sla" || activeTab === "all";
   const showCancellations = activeTab === "cancellations" || activeTab === "all";
 
+  const deltas = kpi.deltas;
+
   return (
     <div className="space-y-6">
       {/* =========================================================================
-          Brand Executive KPI Telemetry Cards
+          Brand Executive KPI Telemetry Cards (with PoP Deltas)
           ========================================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* GMV */}
@@ -74,7 +123,14 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
             <span className="text-xs font-mono uppercase tracking-wider font-semibold">
               Brand GMV
             </span>
-            <TrendingUp className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.gmvDeltaPct}
+                suffix="%"
+                label={deltas?.comparisonLabel}
+              />
+              <TrendingUp className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            </div>
           </div>
           <div className="text-2xl font-bold mt-2 text-[var(--text-primary)] font-display tabular-nums">
             {formatRupiah(kpi.gross_gmv)}
@@ -96,15 +152,22 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
             <span className="text-xs font-mono uppercase tracking-wider font-semibold">
               Net Settlement
             </span>
-            <span className="text-xs badge-emerald px-2 py-0.5 rounded font-mono font-semibold">
-              {kpi.net_realization_rate}% Realized
-            </span>
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.netPayoutDeltaPct}
+                suffix="%"
+                label={deltas?.comparisonLabel}
+              />
+              <span className="text-xs badge-emerald px-2 py-0.5 rounded font-mono font-semibold">
+                {kpi.net_realization_rate}% Realized
+              </span>
+            </div>
           </div>
           <div className="text-2xl font-bold mt-2 text-emerald-600 dark:text-emerald-400 font-display tabular-nums">
             {formatRupiah(kpi.net_payout)}
           </div>
           <div className="text-xs text-[var(--text-secondary)] mt-1.5 font-mono">
-            Settled net proceeds from platforms
+            {deltas?.comparisonLabel || "Settled net proceeds from platforms"}
           </div>
         </div>
 
@@ -117,7 +180,14 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
             <span className="text-xs font-mono uppercase tracking-wider font-semibold">
               Total Units Sold
             </span>
-            <ShoppingBag className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.ordersDeltaPct}
+                suffix="%"
+                label={deltas?.comparisonLabel}
+              />
+              <ShoppingBag className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            </div>
           </div>
           <div className="text-2xl font-bold mt-2 text-[var(--text-primary)] font-display tabular-nums">
             {kpi.total_units_sold.toLocaleString()} units
@@ -139,7 +209,15 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
             <span className="text-xs font-mono uppercase tracking-wider font-semibold">
               Merchant Promo Burn
             </span>
-            <Flame className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            <div className="flex items-center gap-1.5">
+              <DeltaBadge
+                value={deltas?.promoBurnRateDeltaPts}
+                suffix="pt"
+                invertGood
+                label={deltas?.comparisonLabel}
+              />
+              <Flame className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            </div>
           </div>
           <div className="text-2xl font-bold mt-2 text-rose-600 dark:text-rose-400 font-display tabular-nums">
             {formatRupiah(kpi.merchant_promo_burn)}
@@ -336,25 +414,66 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab(activeTab === "all" ? "velocity" : "all")}
-          className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer self-start sm:self-auto ${
-            activeTab === "all"
-              ? "bg-[var(--text-primary)] text-[var(--bg-surface)]"
-              : "bg-[var(--bg-surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>{activeTab === "all" ? "Showing All Panels" : "Expand All Panels"}</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setBomModalTarget(null);
+              setBomModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold badge-emerald hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Edit Brand BOMs</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab(activeTab === "all" ? "velocity" : "all")}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
+              activeTab === "all"
+                ? "bg-[var(--text-primary)] text-[var(--bg-surface)]"
+                : "bg-[var(--bg-surface-2)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{activeTab === "all" ? "Showing All Panels" : "Expand All Panels"}</span>
+          </button>
+        </div>
       </div>
 
       {/* =========================================================================
-          TAB 1: VELOCITY, CHANNELS, HOURLY KPT & FULL PARETO CATALOG
+          TAB 1: VELOCITY, DAILY TREND, CHANNELS, HOURLY KPT & FULL PARETO CATALOG
           ========================================================================= */}
       {showVelocity && (
         <div className="space-y-6">
+          {/* Daily Revenue & Net Realization Time-Series */}
+          {dailyTrend.length > 0 && (
+            <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <CalendarRange className="w-4 h-4 text-sky-500" />
+                    <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
+                      {brandName} — Daily Revenue &amp; Order Trajectory
+                    </h2>
+                    <span className="text-xs font-mono px-2 py-0.5 rounded badge-sky font-semibold">
+                      {dailyTrend.length} Active Days
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                    Day-by-day Gross GMV, Net Settlement, and completed ticket velocity for {brandName}
+                  </p>
+                </div>
+                <span className="text-xs text-[var(--text-muted)] font-mono">
+                  Left Axis: IDR · Right Axis: Tickets
+                </span>
+              </div>
+
+              <DailyRevenueTrendChart data={dailyTrend} />
+            </div>
+          )}
+
           {/* Charts Grid: Pareto Distribution & Channel Mix */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Pareto Horizontal Bar Chart */}
@@ -681,7 +800,7 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                 </span>
               </div>
               <p className="text-xs text-[var(--text-secondary)] mt-1">
-                Gross Margin = Menu Price − (Raw Food Cost + Packaging Drag)
+                Gross Margin = Menu Price − (Raw Food Cost + Packaging Drag) · Click any SKU to edit BOM or map unmapped items
               </p>
             </div>
 
@@ -710,6 +829,17 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                   {formatRupiah(menuEngineeringSummary.totalTheoreticalMarginRp)}
                 </strong>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBomModalTarget(null);
+                  setBomModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl badge-sky font-semibold hover:opacity-90 cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>Manage Catalog</span>
+              </button>
             </div>
           </div>
 
@@ -754,6 +884,29 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                         <div className="text-[11px] text-[var(--text-secondary)]">
                           {hb.realized_units_sold.toLocaleString()} units sold
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBomModalTarget({
+                              recipe_id: hb.recipe_id,
+                              brand: hb.brand,
+                              item_name: hb.item_name,
+                              canonical_name: hb.canonical_name,
+                              category: hb.category,
+                              bom_summary: hb.bom_summary,
+                              raw_food_cost: hb.raw_food_cost,
+                              packaging_dine_in: hb.packaging_dine_in,
+                              packaging_delivery: hb.packaging_delivery,
+                              target_food_cost_pct: hb.target_food_cost_pct,
+                              is_hero_bom: true,
+                              realized_menu_price: hb.realized_menu_price,
+                            });
+                            setBomModalOpen(true);
+                          }}
+                          className="mt-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border border-[var(--border-default)] text-[var(--text-primary)] cursor-pointer"
+                        >
+                          Edit Hero BOM
+                        </button>
                       </div>
                     </div>
 
@@ -878,13 +1031,14 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                   <th className="py-3 px-3 text-right">Total Profit</th>
                   <th className="py-3 px-3 text-center">Matrix Quadrant</th>
                   <th className="py-3 px-3">Engineering Action</th>
+                  <th className="py-3 px-3 text-center">BOM Editor</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
                 {menuEngineering.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="py-8 text-center text-[var(--text-muted)] font-mono"
                     >
                       No catalog items recorded for menu engineering analysis.
@@ -918,9 +1072,13 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                             <span className="font-semibold text-[var(--text-primary)]">
                               {item.canonical_name}
                             </span>
-                            {item.has_recipe_bom && (
+                            {item.has_recipe_bom ? (
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded badge-emerald font-semibold">
                                 {item.is_hero_bom ? "Hero BOM" : "Seeded BOM"}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded badge-amber">
+                                Unmapped Est.
                               </span>
                             )}
                           </div>
@@ -982,8 +1140,35 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
                             {quadLabel}
                           </span>
                         </td>
-                        <td className="py-3 px-3 text-[var(--text-secondary)] text-xs leading-relaxed min-w-[210px]">
+                        <td className="py-3 px-3 text-[var(--text-secondary)] text-xs leading-relaxed min-w-[180px]">
                           {item.quadrant_action}
+                        </td>
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBomModalTarget({
+                                recipe_id: item.recipe_id || null,
+                                brand: item.brand || brandName,
+                                item_name: item.item_name,
+                                canonical_name: item.canonical_name,
+                                category: item.category,
+                                bom_summary: item.bom_summary,
+                                raw_food_cost: item.raw_food_cost,
+                                packaging_dine_in: item.packaging_dine_in,
+                                packaging_delivery: item.packaging_delivery,
+                                target_food_cost_pct: item.target_food_cost_pct,
+                                is_hero_bom: item.is_hero_bom,
+                                realized_menu_price: item.menu_price,
+                              });
+                              setBomModalOpen(true);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold cursor-pointer transition-opacity hover:opacity-90 ${
+                              item.has_recipe_bom ? "badge-emerald" : "badge-amber"
+                            }`}
+                          >
+                            {item.has_recipe_bom ? "Edit BOM" : "Map SKU"}
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1017,6 +1202,13 @@ export function BrandWorkspace({ brandData }: BrandWorkspaceProps) {
           subtitle={`Cancelled delivery tickets, pre-prep opening gap vs post-prep cooked food waste for ${brandName}`}
         />
       )}
+
+      <RecipeBomModal
+        isOpen={bomModalOpen}
+        onClose={() => setBomModalOpen(false)}
+        initialTarget={bomModalTarget}
+        defaultBrandFilter={brandName}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import {
   getAttendanceCycleReport,
   updateEmployeeAndPayrollAdjustment,
+  updatePayrollPaymentStatus,
 } from '@/lib/attendance';
 
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,37 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
+    if (body.action === 'set_payment_status') {
+      if (!body.period_key) {
+        return NextResponse.json(
+          { success: false, error: 'period_key is required' },
+          { status: 400 }
+        );
+      }
+
+      await updatePayrollPaymentStatus({
+        period_key: String(body.period_key),
+        employee_name: body.employee_name
+          ? String(body.employee_name)
+          : undefined,
+        employee_names: Array.isArray(body.employee_names)
+          ? body.employee_names.map(String)
+          : undefined,
+        is_paid: Boolean(body.is_paid),
+        payment_note: body.payment_note ? String(body.payment_note) : '',
+      });
+
+      revalidatePath('/attendance');
+      revalidatePath('/');
+
+      const report = await getAttendanceCycleReport({
+        periodKey: String(body.period_key),
+      });
+
+      return NextResponse.json({ success: true, report });
+    }
+
     if (!body.employee_name || !body.period_key) {
       return NextResponse.json(
         { success: false, error: 'employee_name and period_key are required' },
@@ -67,6 +99,7 @@ export async function POST(request: NextRequest) {
           ? Number(body.kasbon_unit_value)
           : 0,
       notes: body.notes ?? '',
+      is_paid: typeof body.is_paid === 'boolean' ? body.is_paid : undefined,
     });
 
     revalidatePath('/attendance');

@@ -2,13 +2,27 @@ import path from 'path';
 import fs from 'fs';
 import { DuckDBInstance } from '@duckdb/node-api';
 
+const envLocalPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  for (const rawLine of fs.readFileSync(envLocalPath, 'utf-8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eqIdx = line.indexOf('=');
+    if (eqIdx > 0) {
+      const k = line.slice(0, eqIdx).trim();
+      const v = line.slice(eqIdx + 1).trim().replace(/^['"]|['"]$/g, '');
+      if (k && process.env[k] === undefined) process.env[k] = v;
+    }
+  }
+}
+
 const defaultQueryUrl =
   'https://tyfel-cockpit-poor-hedge.sage.cloud.layerbase.dev/v1/databases/36373641-c5db-463e-975c-0d636a0c92c5/query';
 const queryUrl = process.env.LAYERBASE_QUERY_URL || defaultQueryUrl;
 const apiKey = process.env.LAYERBASE_API_KEY;
 
 if (!apiKey) {
-  console.error('❌ Missing LAYERBASE_API_KEY environment variable.');
+  console.error('❌ Missing LAYERBASE_API_KEY environment variable (checked process.env and .env.local).');
   console.error('');
   console.error('Usage:');
   console.error('  LAYERBASE_API_KEY="sk_..." npm run db:push-layerbase');

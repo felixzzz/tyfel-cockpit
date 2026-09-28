@@ -73,7 +73,13 @@ export default function AttendancePayrollPage() {
   const [isEditingSlip, setIsEditingSlip] = useState<boolean>(false);
   const [isFullScreenSlip, setIsFullScreenSlip] = useState<boolean>(false);
   const [savingSlip, setSavingSlip] = useState<boolean>(false);
+  const [togglingPaymentKey, setTogglingPaymentKey] = useState<string | null>(
+    null
+  );
   const [saveBanner, setSaveBanner] = useState<string | null>(null);
+  const [matrixPaymentFilter, setMatrixPaymentFilter] = useState<
+    "all" | "paid" | "unpaid"
+  >("all");
 
   // Per-period Edit Form State (saved per employee + period_key)
   const [editFullName, setEditFullName] = useState<string>("");
@@ -93,6 +99,7 @@ export default function AttendancePayrollPage() {
   const [editKasbonQty, setEditKasbonQty] = useState<number>(0);
   const [editKasbonUnit, setEditKasbonUnit] = useState<number>(0);
   const [editNotes, setEditNotes] = useState<string>("");
+  const [editIsPaid, setEditIsPaid] = useState<boolean>(false);
   const [alsoUpdateMasterDefaults, setAlsoUpdateMasterDefaults] =
     useState<boolean>(false);
 
@@ -179,8 +186,83 @@ export default function AttendancePayrollPage() {
     setEditKasbonQty(activeSlip.kasbon_qty || 0);
     setEditKasbonUnit(activeSlip.kasbon_unit || 0);
     setEditNotes(activeSlip.notes || "");
+    setEditIsPaid(Boolean(activeSlip.is_paid));
     setAlsoUpdateMasterDefaults(false);
   }, [activeSlip]);
+
+  async function handleToggleEmployeePayment(
+    empName: string,
+    fullName: string,
+    currentIsPaid: boolean,
+    e?: React.MouseEvent
+  ) {
+    if (e) {
+      e.stopPropagation();
+    }
+    if (!report) return;
+    const nextIsPaid = !currentIsPaid;
+    setTogglingPaymentKey(empName);
+    setSaveBanner(null);
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_payment_status",
+          period_key: report.period_key,
+          employee_name: empName,
+          is_paid: nextIsPaid,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.report) {
+        setReport(data.report);
+        setSaveBanner(
+          nextIsPaid
+            ? `Salary for ${fullName} (${report.salary_code}) marked as Proceeded to Payment ✓`
+            : `Salary for ${fullName} (${report.salary_code}) marked as Not Yet Proceeded to Payment`
+        );
+        setTimeout(() => setSaveBanner(null), 4500);
+      }
+    } catch (err) {
+      console.error("Failed to toggle payment status:", err);
+    } finally {
+      setTogglingPaymentKey(null);
+    }
+  }
+
+  async function handleSetPeriodAllPayment(targetIsPaid: boolean) {
+    if (!report) return;
+    setTogglingPaymentKey("ALL");
+    setSaveBanner(null);
+    try {
+      const allEmpNames = report.payslips.map((p) => p.employee.employee_name);
+      const res = await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_payment_status",
+          period_key: report.period_key,
+          employee_names: allEmpNames,
+          is_paid: targetIsPaid,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.report) {
+        setReport(data.report);
+        setSaveBanner(
+          targetIsPaid
+            ? `All ${allEmpNames.length} staff salaries in ${report.salary_code} (${report.cycle_label}) marked as Proceeded to Payment ✓`
+            : `Reset all ${allEmpNames.length} staff salaries in ${report.salary_code} to Not Yet Proceeded to Payment`
+        );
+        setTimeout(() => setSaveBanner(null), 4500);
+      }
+    } catch (err) {
+      console.error("Failed to update period payment status:", err);
+    } finally {
+      setTogglingPaymentKey(null);
+    }
+  }
 
   async function handleSavePayslip(e: React.FormEvent) {
     e.preventDefault();
@@ -217,6 +299,7 @@ export default function AttendancePayrollPage() {
           kasbon_qty: Number(editKasbonQty),
           kasbon_unit_value: Number(editKasbonUnit),
           notes: editNotes,
+          is_paid: editIsPaid,
         }),
       });
       const data = await res.json();
@@ -320,6 +403,8 @@ export default function AttendancePayrollPage() {
       "Grand Total",
       "Kasbon Deduction",
       "Net Take-Home Pay",
+      "Payment Status",
+      "Paid At",
     ];
     const rows = report.payslips.map((p) => [
       report.year,
@@ -345,6 +430,8 @@ export default function AttendancePayrollPage() {
       p.grand_total,
       p.kasbon_total,
       p.net_take_home_pay,
+      p.is_paid ? "Proceeded to Payment" : "Not Yet Paid",
+      p.paid_at ? `"${p.paid_at}"` : "",
     ]);
     const csvContent =
       "data:text/csv;charset=utf-8," +
@@ -472,8 +559,8 @@ export default function AttendancePayrollPage() {
 
             {/* Right Column: Salary Table */}
             <div className="md:col-span-8">
-              {/* Top Green Tab Header (Salary_X) */}
-              <div className="flex items-center justify-between">
+              {/* Top Green Tab Header (Salary_X) & Payment Status Flag */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div
                   className={`inline-flex items-center gap-3 bg-[#2d6147] text-white px-4 py-1.5 rounded-t-xl font-semibold border-b border-white/20 ${
                     amplified ? "text-sm" : "text-xs"
@@ -482,6 +569,38 @@ export default function AttendancePayrollPage() {
                   <span>{report.salary_code}</span>
                   <span className="opacity-75">▾</span>
                   <FileSpreadsheet className="w-3.5 h-3.5 opacity-80" />
+                </div>
+
+                {/* Salary Payment Status Flag on Payslip */}
+                <div className="mb-1.5">
+                  {activeSlip.is_paid ? (
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-mono font-bold uppercase tracking-wider border ${
+                        isLight
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                          : "bg-emerald-950/70 text-emerald-300 border-emerald-500/40"
+                      } ${amplified ? "text-xs" : "text-[11px]"}`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Proceeded to Payment</span>
+                      {activeSlip.paid_at && (
+                        <span className="opacity-75 font-normal">
+                          · {activeSlip.paid_at}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-mono font-bold uppercase tracking-wider border ${
+                        isLight
+                          ? "bg-amber-100 text-amber-800 border-amber-300"
+                          : "bg-amber-950/70 text-amber-300 border-amber-500/40"
+                      } ${amplified ? "text-xs" : "text-[11px]"}`}
+                    >
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                      <span>Not Yet Proceeded to Payment</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -660,9 +779,24 @@ export default function AttendancePayrollPage() {
                     >
                       <td
                         colSpan={3}
-                        className="py-3 px-3.5 text-left text-xs font-mono uppercase tracking-wider opacity-75 border-r border-current/10"
+                        className="py-3 px-3.5 text-left text-xs font-mono uppercase tracking-wider opacity-80 border-r border-current/10"
                       >
-                        {"\u00A0"}
+                        Take-Home Pay ·{" "}
+                        <span
+                          className={
+                            activeSlip.is_paid
+                              ? isLight
+                                ? "text-emerald-700 font-bold"
+                                : "text-emerald-400 font-bold"
+                              : isLight
+                                ? "text-amber-700 font-bold"
+                                : "text-amber-400 font-bold"
+                          }
+                        >
+                          {activeSlip.is_paid
+                            ? "PROCEEDED TO PAYMENT ✓"
+                            : "NOT YET PAID"}
+                        </span>
                       </td>
                       <td className="py-3 px-3.5 text-right font-mono font-extrabold">
                         {formatAccountingRp(
@@ -733,12 +867,34 @@ export default function AttendancePayrollPage() {
                       key={p.employee.employee_name}
                       type="button"
                       onClick={() => setSelectedEmpName(p.employee.employee_name)}
+                      title={
+                        p.is_paid
+                          ? `${p.employee.full_name}: Salary Proceeded to Payment`
+                          : `${p.employee.full_name}: Salary Not Yet Proceeded to Payment`
+                      }
                       className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                         isActive
                           ? "bg-[#5c7c5c] text-[#f5f2dc] font-semibold shadow"
                           : "surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)]"
                       }`}
                     >
+                      {p.is_paid ? (
+                        <CheckCircle2
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            isActive
+                              ? "text-emerald-200"
+                              : "text-emerald-600 dark:text-emerald-400"
+                          }`}
+                        />
+                      ) : (
+                        <Clock
+                          className={`w-3 h-3 shrink-0 ${
+                            isActive
+                              ? "text-amber-200"
+                              : "text-amber-600 dark:text-amber-400"
+                          }`}
+                        />
+                      )}
                       <span>{p.employee.employee_name}</span>
                       <span className="text-[10px] opacity-75 font-mono">
                         ({p.daily_qty}d)
@@ -748,7 +904,40 @@ export default function AttendancePayrollPage() {
                 })}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    togglingPaymentKey === activeSlip.employee.employee_name
+                  }
+                  onClick={() =>
+                    handleToggleEmployeePayment(
+                      activeSlip.employee.employee_name,
+                      activeSlip.employee.full_name,
+                      activeSlip.is_paid
+                    )
+                  }
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
+                    activeSlip.is_paid ? "badge-emerald" : "badge-amber"
+                  }`}
+                  title={
+                    activeSlip.is_paid
+                      ? "Salary has been proceeded to payment. Click to mark as Not Yet Paid."
+                      : "Salary has not yet been proceeded to payment. Click to mark as Proceeded to Payment."
+                  }
+                >
+                  {activeSlip.is_paid ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Proceeded to Payment ✓</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Not Yet Paid · Mark Proceeded</span>
+                    </>
+                  )}
+                </button>
                 <span className="text-xs font-mono text-[var(--text-secondary)] hidden sm:inline">
                   {report.cycle_label}
                 </span>
@@ -817,7 +1006,7 @@ export default function AttendancePayrollPage() {
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-0.5">
-                Monthly payroll periods (16th–15th), per-period employee overrides & automated attendance verification
+                Monthly payroll periods (16th–15th), per-period employee overrides, payment disbursement status & attendance verification
               </p>
             </div>
           </div>
@@ -908,7 +1097,7 @@ export default function AttendancePayrollPage() {
             </div>
 
             {report && (
-              <span className="text-xs font-mono text-[var(--text-secondary)] flex items-center gap-2">
+              <span className="text-xs font-mono text-[var(--text-secondary)] flex flex-wrap items-center gap-2">
                 <span>
                   Active Period:{" "}
                   <strong className="text-[var(--text-primary)]">{report.cycle_label}</strong> ·{" "}
@@ -916,6 +1105,22 @@ export default function AttendancePayrollPage() {
                     {report.salary_code}
                   </span>
                 </span>
+                {report.overall.cycle_payment_status === "paid" ? (
+                  <span className="badge-emerald px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    All Proceeded to Payment ({report.overall.paid_employees_count}/{report.payslips.length})
+                  </span>
+                ) : report.overall.cycle_payment_status === "partial" ? (
+                  <span className="badge-amber px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Partial Payment ({report.overall.paid_employees_count}/{report.payslips.length} Paid)
+                  </span>
+                ) : (
+                  <span className="badge-amber px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Not Yet Proceeded to Payment (0/{report.payslips.length})
+                  </span>
+                )}
                 {report.is_current_running && (
                   <span className="badge-blue px-2 py-0.5 rounded-full text-[11px]">
                     In Progress · Read-Only
@@ -986,7 +1191,7 @@ export default function AttendancePayrollPage() {
                       ? `${cyc.label} (${cyc.salary_code})`
                       : `Future period locked (${cyc.start_date} to ${cyc.end_date})`
                 }
-                className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between min-h-[72px] ${
+                className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between min-h-[78px] ${
                   isSelected
                     ? cyc.is_current_running
                       ? "bg-sky-500/15 border-sky-500/60 text-[var(--text-primary)] shadow-sm cursor-pointer"
@@ -1007,6 +1212,13 @@ export default function AttendancePayrollPage() {
                       className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0"
                       title="In Progress (Read-Only)"
                     />
+                  ) : cyc.payment_status === "paid" ? (
+                    <span
+                      className="inline-flex shrink-0"
+                      title="All salaries in this period proceeded to payment"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    </span>
                   ) : cyc.log_count > 0 ? (
                     <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                   ) : null}
@@ -1016,7 +1228,7 @@ export default function AttendancePayrollPage() {
                   <div className="text-[10px] font-mono text-[var(--text-secondary)] truncate">
                     {cyc.start_date.slice(5)} → {cyc.end_date.slice(5)}
                   </div>
-                  <div className="flex items-center justify-between text-[10px] font-mono">
+                  <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
                     {cyc.is_current_running ? (
                       <span className="text-sky-600 dark:text-sky-400 font-semibold">
                         In Progress ({cyc.log_count})
@@ -1036,14 +1248,39 @@ export default function AttendancePayrollPage() {
                     ) : (
                       <span className="text-[var(--text-muted)]">Locked</span>
                     )}
-                    {cyc.override_count > 0 && (
+                    {cyc.is_selectable &&
+                    (cyc.paid_count > 0 ||
+                      (cyc.log_count > 0 && !cyc.is_current_running)) ? (
+                      cyc.payment_status === "paid" ? (
+                        <span
+                          className="px-1 rounded badge-emerald text-[9px] font-bold"
+                          title={`All ${cyc.paid_count}/${cyc.active_employee_count} staff salaries proceeded to payment`}
+                        >
+                          PAID
+                        </span>
+                      ) : cyc.payment_status === "partial" ? (
+                        <span
+                          className="px-1 rounded badge-amber text-[9px] font-bold"
+                          title={`${cyc.paid_count}/${cyc.active_employee_count} staff salaries proceeded to payment`}
+                        >
+                          {cyc.paid_count}/{cyc.active_employee_count} PAID
+                        </span>
+                      ) : (
+                        <span
+                          className="px-1 rounded badge-rose text-[9px] font-semibold"
+                          title="Salaries for this completed period have not yet been proceeded to payment"
+                        >
+                          UNPAID
+                        </span>
+                      )
+                    ) : cyc.override_count > 0 ? (
                       <span
                         className="px-1 rounded badge-amber text-[10px]"
                         title={`${cyc.override_count} saved employee override(s) in this period`}
                       >
                         {cyc.override_count} adj
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </button>
@@ -1076,6 +1313,22 @@ export default function AttendancePayrollPage() {
               <span>Gross: {formatRp(report.overall.total_gross_payroll)}</span>
               <span className="text-amber-600 dark:text-amber-300 font-mono">
                 Kasbon: -{formatRp(report.overall.total_kasbon_deducted)}
+              </span>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-[11px] font-mono">
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                Paid ({report.overall.paid_employees_count}):{" "}
+                {formatRp(report.overall.total_paid_net_amount)}
+              </span>
+              <span
+                className={
+                  report.overall.unpaid_employees_count > 0
+                    ? "text-amber-600 dark:text-amber-400 font-semibold"
+                    : "text-[var(--text-muted)]"
+                }
+              >
+                Unpaid ({report.overall.unpaid_employees_count}):{" "}
+                {formatRp(report.overall.total_unpaid_net_amount)}
               </span>
             </div>
           </div>
@@ -1166,12 +1419,34 @@ export default function AttendancePayrollPage() {
                         setSelectedEmpName(p.employee.employee_name);
                         setIsEditingSlip(false);
                       }}
+                      title={
+                        p.is_paid
+                          ? "Salary Proceeded to Payment"
+                          : "Salary Not Yet Proceeded to Payment"
+                      }
                       className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                         isActive
                           ? "bg-[#5c7c5c] text-[#f5f2dc] font-semibold shadow"
                           : "surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)]"
                       }`}
                     >
+                      {p.is_paid ? (
+                        <CheckCircle2
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            isActive
+                              ? "text-emerald-200"
+                              : "text-emerald-600 dark:text-emerald-400"
+                          }`}
+                        />
+                      ) : (
+                        <Clock
+                          className={`w-3 h-3 shrink-0 ${
+                            isActive
+                              ? "text-amber-200"
+                              : "text-amber-600 dark:text-amber-400"
+                          }`}
+                        />
+                      )}
                       <span>{p.employee.employee_name}</span>
                       <span className="text-[10px] opacity-75 font-mono">
                         ({p.daily_qty}d)
@@ -1187,7 +1462,42 @@ export default function AttendancePayrollPage() {
                 })}
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* One-Click Salary Payment Flag Toggle for Active Employee */}
+                <button
+                  type="button"
+                  disabled={
+                    togglingPaymentKey === activeSlip.employee.employee_name
+                  }
+                  onClick={() =>
+                    handleToggleEmployeePayment(
+                      activeSlip.employee.employee_name,
+                      activeSlip.employee.full_name,
+                      activeSlip.is_paid
+                    )
+                  }
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                    activeSlip.is_paid ? "badge-emerald" : "badge-amber"
+                  }`}
+                  title={
+                    activeSlip.is_paid
+                      ? "Salary has been proceeded to payment. Click to mark as Not Yet Paid."
+                      : "Salary has not yet been proceeded to payment. Click to mark as Proceeded to Payment."
+                  }
+                >
+                  {activeSlip.is_paid ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Proceeded to Payment ✓</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Not Yet Paid · Mark Proceeded</span>
+                    </>
+                  )}
+                </button>
+
                 <button
                   type="button"
                   onClick={() =>
@@ -1530,6 +1840,39 @@ export default function AttendancePayrollPage() {
                   />
                 </div>
 
+                {/* Payment Status Flag inside Editor */}
+                <div className="pt-2 border-t border-[var(--border-subtle)]">
+                  <label className="block text-xs text-[var(--text-secondary)] mb-1.5">
+                    Salary Payment Status ({report.salary_code})
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditIsPaid(false)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition-all ${
+                        !editIsPaid
+                          ? "badge-amber shadow-xs"
+                          : "surface-well text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Not Yet Proceeded</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditIsPaid(true)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition-all ${
+                        editIsPaid
+                          ? "badge-emerald shadow-xs"
+                          : "surface-well text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Proceeded to Payment</span>
+                    </button>
+                  </div>
+                </div>
+
                 <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] pt-1 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1714,18 +2057,81 @@ export default function AttendancePayrollPage() {
           ========================================================================= */}
       {report && (
         <section className="cockpit-panel rounded-2xl overflow-hidden">
-          <div className="p-5 border-b border-[var(--border-subtle)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-5 border-b border-[var(--border-subtle)] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-bold text-[var(--text-primary)]">
                 Outlet Payroll & Attendance Matrix · {report.cycle_label}
               </h2>
               <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                Click any employee row to inspect or override their payslip for{" "}
+                Click any employee row to inspect their payslip, or toggle the payment status flag directly for{" "}
                 {report.salary_code}
               </p>
             </div>
-            <div className="text-xs font-mono text-[var(--text-secondary)]">
-              Showing {report.payslips.length} employees
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Payment Status Filter Pills */}
+              <div className="flex items-center gap-1 surface-well p-1 rounded-xl">
+                {(
+                  [
+                    {
+                      id: "all",
+                      label: `All (${report.payslips.length})`,
+                    },
+                    {
+                      id: "paid",
+                      label: `Proceeded (${report.overall.paid_employees_count})`,
+                    },
+                    {
+                      id: "unpaid",
+                      label: `Not Yet Paid (${report.overall.unpaid_employees_count})`,
+                    },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setMatrixPaymentFilter(tab.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                      matrixPaymentFilter === tab.id
+                        ? "bg-[var(--accent-primary)] text-white font-semibold"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Bulk Period Payment Actions */}
+              {report.overall.unpaid_employees_count > 0 && (
+                <button
+                  type="button"
+                  disabled={togglingPaymentKey === "ALL"}
+                  onClick={() => handleSetPeriodAllPayment(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold badge-emerald cursor-pointer transition-all hover:opacity-90 disabled:opacity-50"
+                  title={`Mark all ${report.payslips.length} staff salaries in ${report.salary_code} as Proceeded to Payment`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>
+                    {togglingPaymentKey === "ALL"
+                      ? "Updating..."
+                      : `Mark All Proceeded (${report.salary_code})`}
+                  </span>
+                </button>
+              )}
+
+              {report.overall.paid_employees_count > 0 && (
+                <button
+                  type="button"
+                  disabled={togglingPaymentKey === "ALL"}
+                  onClick={() => handleSetPeriodAllPayment(false)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer transition-all disabled:opacity-50"
+                  title={`Reset all staff salaries in ${report.salary_code} back to Not Yet Paid`}
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset All Unpaid</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -1744,98 +2150,149 @@ export default function AttendancePayrollPage() {
                   <th className="py-3 px-3 text-right">Bonus 0-Telat</th>
                   <th className="py-3 px-3 text-right">Grand Total</th>
                   <th className="py-3 px-3 text-right">Kasbon</th>
-                  <th className="py-3 px-4 text-right">Net Pay</th>
+                  <th className="py-3 px-3 text-right">Net Pay</th>
+                  <th className="py-3 px-4 text-center">Payment Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
-                {report.payslips.map((p) => {
-                  const isSelected =
-                    p.employee.employee_name ===
-                    activeSlip?.employee.employee_name;
-                  return (
-                    <tr
-                      key={p.employee.employee_name}
-                      onClick={() =>
-                        setSelectedEmpName(p.employee.employee_name)
-                      }
-                      className={`cursor-pointer transition-colors ${
-                        isSelected
-                          ? "bg-emerald-500/10 hover:bg-emerald-500/15"
-                          : "hover:bg-[var(--bg-surface-2)]/60"
-                      }`}
-                    >
-                      <td className="py-3.5 px-4">
-                        <div className="font-semibold text-[var(--text-primary)] flex items-center gap-2">
-                          <span>{p.employee.full_name}</span>
-                          {p.has_period_override && (
-                            <span className="badge-amber text-[10px] font-mono px-1.5 py-0.5 rounded">
-                              Override
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-[var(--text-secondary)]">
-                          ID: {p.employee.employee_name} ·{" "}
-                          {p.employee.join_date_label}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-3">
-                        <div className="text-[var(--text-primary)]">{p.employee.role}</div>
-                        <div className="text-[11px] font-mono text-[var(--text-secondary)]">
-                          In ≤ {p.effective_shift_start}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-[var(--text-secondary)]">
-                        <div>{p.raw_logs_count}</div>
-                        {(p.closing_taps_count > 0 ||
-                          p.overnight_rollovers_count > 0) && (
-                          <div className="text-[10px] text-amber-600 dark:text-amber-400">
-                            {p.closing_taps_count > 0
-                              ? `${p.closing_taps_count} tap `
-                              : ""}
-                            {p.overnight_rollovers_count > 0
-                              ? `${p.overnight_rollovers_count} >20h`
-                              : ""}
+                {report.payslips
+                  .filter((p) => {
+                    if (matrixPaymentFilter === "paid") return p.is_paid;
+                    if (matrixPaymentFilter === "unpaid") return !p.is_paid;
+                    return true;
+                  })
+                  .map((p) => {
+                    const isSelected =
+                      p.employee.employee_name ===
+                      activeSlip?.employee.employee_name;
+                    const isTogglingThis =
+                      togglingPaymentKey === p.employee.employee_name ||
+                      togglingPaymentKey === "ALL";
+                    return (
+                      <tr
+                        key={p.employee.employee_name}
+                        onClick={() =>
+                          setSelectedEmpName(p.employee.employee_name)
+                        }
+                        className={`cursor-pointer transition-colors ${
+                          isSelected
+                            ? "bg-emerald-500/10 hover:bg-emerald-500/15"
+                            : "hover:bg-[var(--bg-surface-2)]/60"
+                        }`}
+                      >
+                        <td className="py-3.5 px-4">
+                          <div className="font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                            <span>{p.employee.full_name}</span>
+                            {p.has_period_override && (
+                              <span className="badge-amber text-[10px] font-mono px-1.5 py-0.5 rounded">
+                                Override
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
-                        {p.daily_qty}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono">
-                        <span
-                          className={`px-2 py-0.5 rounded ${
-                            p.late_qty === 0
-                              ? "badge-emerald"
-                              : "badge-rose font-bold"
-                          }`}
-                        >
-                          {p.late_qty}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-[var(--text-secondary)]">
-                        {formatAccountingRp(p.basic_total)}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-[var(--text-primary)]">
-                        {formatAccountingRp(p.daily_total)}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-rose-600 dark:text-rose-400">
-                        {formatAccountingRp(p.late_total)}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
-                        {formatAccountingRp(p.bonus_tidak_telat_total)}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
-                        {formatAccountingRp(p.grand_total, false)}
-                      </td>
-                      <td className="py-3.5 px-3 text-right font-mono text-amber-600 dark:text-amber-300">
-                        {formatAccountingRp(p.kasbon_total)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-300 text-sm">
-                        {formatAccountingRp(p.net_take_home_pay, false)}
-                      </td>
-                    </tr>
-                  );
-                })}
+                          <div className="text-[11px] text-[var(--text-secondary)]">
+                            ID: {p.employee.employee_name} ·{" "}
+                            {p.employee.join_date_label}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3">
+                          <div className="text-[var(--text-primary)]">{p.employee.role}</div>
+                          <div className="text-[11px] font-mono text-[var(--text-secondary)]">
+                            In ≤ {p.effective_shift_start}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-[var(--text-secondary)]">
+                          <div>{p.raw_logs_count}</div>
+                          {(p.closing_taps_count > 0 ||
+                            p.overnight_rollovers_count > 0) && (
+                            <div className="text-[10px] text-amber-600 dark:text-amber-400">
+                              {p.closing_taps_count > 0
+                                ? `${p.closing_taps_count} tap `
+                                : ""}
+                              {p.overnight_rollovers_count > 0
+                                ? `${p.overnight_rollovers_count} >20h`
+                                : ""}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
+                          {p.daily_qty}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono">
+                          <span
+                            className={`px-2 py-0.5 rounded ${
+                              p.late_qty === 0
+                                ? "badge-emerald"
+                                : "badge-rose font-bold"
+                            }`}
+                          >
+                            {p.late_qty}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-[var(--text-secondary)]">
+                          {formatAccountingRp(p.basic_total)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-[var(--text-primary)]">
+                          {formatAccountingRp(p.daily_total)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-rose-600 dark:text-rose-400">
+                          {formatAccountingRp(p.late_total)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                          {formatAccountingRp(p.bonus_tidak_telat_total)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
+                          {formatAccountingRp(p.grand_total, false)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono text-amber-600 dark:text-amber-300">
+                          {formatAccountingRp(p.kasbon_total)}
+                        </td>
+                        <td className="py-3.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-300 text-sm">
+                          {formatAccountingRp(p.net_take_home_pay, false)}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <button
+                              type="button"
+                              disabled={isTogglingThis}
+                              onClick={(e) =>
+                                handleToggleEmployeePayment(
+                                  p.employee.employee_name,
+                                  p.employee.full_name,
+                                  p.is_paid,
+                                  e
+                                )
+                              }
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold transition-all cursor-pointer disabled:opacity-50 ${
+                                p.is_paid ? "badge-emerald" : "badge-amber"
+                              }`}
+                              title={
+                                p.is_paid
+                                  ? "Salary has been proceeded to payment. Click to mark as Not Yet Paid."
+                                  : "Salary has not yet been proceeded to payment. Click to mark as Proceeded to Payment."
+                              }
+                            >
+                              {p.is_paid ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Proceeded</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                                  <span>Not Yet Paid</span>
+                                </>
+                              )}
+                            </button>
+                            {p.is_paid && p.paid_at && (
+                              <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                                {p.paid_at}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
               <tfoot>
                 <tr className="bg-[var(--bg-surface-2)] font-mono font-bold text-[var(--text-primary)] border-t border-[var(--border-default)]">
@@ -1857,8 +2314,19 @@ export default function AttendancePayrollPage() {
                   <td className="py-3.5 px-3 text-right text-amber-600 dark:text-amber-300">
                     -{formatRp(report.overall.total_kasbon_deducted)}
                   </td>
-                  <td className="py-3.5 px-4 text-right text-emerald-600 dark:text-emerald-400 text-sm">
+                  <td className="py-3.5 px-3 text-right text-emerald-600 dark:text-emerald-400 text-sm">
                     {formatRp(report.overall.total_net_take_home)}
+                  </td>
+                  <td className="py-3.5 px-4 text-center text-xs">
+                    <span
+                      className={
+                        report.overall.cycle_payment_status === "paid"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-amber-600 dark:text-amber-400"
+                      }
+                    >
+                      {report.overall.paid_employees_count}/{report.payslips.length} Paid
+                    </span>
                   </td>
                 </tr>
               </tfoot>

@@ -7,12 +7,16 @@ import {
   getChannelPerformance,
   getTopItems,
   getHourlyDistribution,
+  getDailyRevenueTrend,
   getHeroRecipeBoms,
   getKitchenSlaDiagnostic,
   getCanceledOrdersDiagnostic,
+  getPrimeCostSummary,
+  getDataFreshness,
   QueryFilters,
 } from "@/lib/queries";
 import { FilterBar } from "@/components/FilterBar";
+import { DataFreshnessBar } from "@/components/DataFreshnessBar";
 import { DashboardWorkspace } from "@/components/DashboardWorkspace";
 import { Store, Users, ArrowUpRight } from "lucide-react";
 
@@ -43,9 +47,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     channels,
     topItems,
     hourly,
+    dailyTrend,
     heroBoms,
     slaDiagnostic,
     cancellationDiagnostic,
+    primeCost,
+    freshness,
   ] = await Promise.all([
     getExecutiveSummary(filters),
     getBrandBreakdown(filters),
@@ -53,9 +60,12 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     getChannelPerformance(filters),
     getTopItems(8, filters),
     getHourlyDistribution(filters),
+    getDailyRevenueTrend(filters),
     getHeroRecipeBoms(filters),
     getKitchenSlaDiagnostic(filters),
     getCanceledOrdersDiagnostic(filters),
+    getPrimeCostSummary(filters),
+    getDataFreshness(filters),
   ]);
 
   // Construct query string for persistent brand navigation
@@ -65,6 +75,19 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   if (filters.from) queryParams.set("from", filters.from);
   if (filters.to) queryParams.set("to", filters.to);
   const filterQs = queryParams.toString() ? "?" + queryParams.toString() : "";
+
+  const branchLabel =
+    filters.branch === "kemang"
+      ? "Kemang Cloud Kitchen"
+      : filters.branch === "greenville"
+      ? "Greenville Flagship"
+      : "All Branches (Consolidated)";
+  const rangeLabel =
+    filters.from || filters.to
+      ? `${filters.from || "Start"} to ${filters.to || "Latest"}`
+      : filters.range && filters.range !== "all"
+      ? `Last ${filters.range}`
+      : "Full Historical Window";
 
   return (
     <main className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1560px] mx-auto">
@@ -109,7 +132,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       </div>
 
       {/* =========================================================================
-          Global Interactive Tactical Filter Bar
+          Global Interactive Tactical Filter Bar & Data Freshness / EOD Digest Bar
           ========================================================================= */}
       <Suspense fallback={<div className="h-16 cockpit-panel rounded-2xl animate-pulse" />}>
         <FilterBar
@@ -119,6 +142,17 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           initialTo={filters.to || ""}
         />
       </Suspense>
+
+      <DataFreshnessBar
+        freshness={freshness}
+        compact
+        digestContext={{
+          summary,
+          primeCost,
+          brands,
+          filterLabel: `${branchLabel} · ${rangeLabel}`,
+        }}
+      />
 
       {/* =========================================================================
           Interactive Mode-Scoped Dashboard Workspace
@@ -130,6 +164,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         channels={channels}
         topItems={topItems}
         hourly={hourly}
+        dailyTrend={dailyTrend}
+        primeCost={primeCost}
         heroBoms={heroBoms}
         slaDiagnostic={slaDiagnostic}
         cancellationDiagnostic={cancellationDiagnostic}
@@ -138,3 +174,4 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     </main>
   );
 }
+

@@ -1,4 +1,4 @@
-import { runQuery } from './duckdb';
+import { runQuery, MASTER_RECIPES } from './duckdb';
 
 
 export interface SourceFreshness {
@@ -33,6 +33,97 @@ export interface QueryFilters {
   to?: string;
 }
 
+export interface PeriodDeltaMetrics {
+  comparisonLabel: string;
+  gmvDeltaPct: number | null;
+  netPayoutDeltaPct: number | null;
+  ordersDeltaPct: number | null;
+  aovDeltaPct: number | null;
+  promoBurnRateDeltaPts: number | null;
+  slaBreachRateDeltaPts: number | null;
+  cancelRateDeltaPts: number | null;
+}
+
+export interface DailyTrendPoint {
+  date: string;
+  dateLabel: string;
+  order_count: number;
+  gross_gmv: number;
+  net_payout: number;
+  merchant_promo_burn: number;
+  net_realization_rate: number;
+  avg_prep_time_min: number;
+  sla_breaches: number;
+}
+
+export interface PrimeCostSummary {
+  grossGmv: number;
+  merchantPromoBurn: number;
+  platformFeesAndCommissions: number;
+  netRevenue: number;
+  netRealizationPct: number;
+  rawFoodCost: number;
+  packagingCost: number;
+  totalCogs: number;
+  cogsPctOfNetRevenue: number;
+  cogsPctOfGrossGmv: number;
+  grossMarginAfterCogs: number;
+  grossMarginAfterCogsPct: number;
+  laborIncluded: boolean;
+  laborOutletScope: string;
+  activeStaffCount: number;
+  paidShiftsCount: number;
+  effectiveLaborHours: number;
+  lateIncidentsCount: number;
+  grossShiftAndBaseWages: number;
+  latePenaltiesDeducted: number;
+  netLaborCost: number;
+  laborPctOfNetRevenue: number;
+  laborPctOfGrossGmv: number;
+  revenuePerLaborHour: number;
+  primeCost: number;
+  primeCostPctOfNetRevenue: number;
+  primeCostPctOfGrossGmv: number;
+  primeCostTargetPct: number;
+  primeCostStatus: 'Optimal' | 'Watchlist' | 'High Strain';
+  netContributionMarginRp: number;
+  netContributionMarginPct: number;
+  activeDaysCount: number;
+  dateSpanLabel: string;
+}
+
+export interface CatalogBomItem {
+  recipe_id: string | null;
+  brand: string;
+  item_name: string;
+  canonical_name: string;
+  category: string;
+  bom_summary: string;
+  raw_food_cost: number;
+  packaging_dine_in: number;
+  packaging_delivery: number;
+  target_food_cost_pct: number;
+  is_hero_bom: boolean;
+  has_recipe_bom: boolean;
+  is_seeded_default: boolean;
+  realized_menu_price: number;
+  total_units_sold: number;
+}
+
+export interface UpsertRecipeBomInput {
+  recipe_id?: string | null;
+  brand: string;
+  item_name: string;
+  canonical_name: string;
+  category: string;
+  bom_summary: string;
+  raw_food_cost: number;
+  packaging_dine_in: number;
+  packaging_delivery: number;
+  target_food_cost_pct: number;
+  is_hero_bom?: boolean;
+}
+
 export interface ExecutiveSummary {
   total_orders: number;
   total_gross_gmv: number;
@@ -50,6 +141,7 @@ export interface ExecutiveSummary {
   cancelled_gross_gmv: number;
   cancelled_net_payout: number;
   post_prep_cancelled_count: number;
+  deltas?: PeriodDeltaMetrics;
 }
 
 export interface BrandStats {
@@ -119,6 +211,7 @@ export interface BrandDetailKPI {
   cancelled_gross_gmv: number;
   cancelled_net_payout: number;
   post_prep_cancelled_count: number;
+  deltas?: PeriodDeltaMetrics;
 }
 
 export interface SkuParetoItem {
@@ -166,6 +259,8 @@ export interface BrandHourlyStats {
 export type MenuEngineeringQuadrant = 'Star' | 'Plowhorse' | 'Puzzle' | 'Dog';
 
 export interface MenuEngineeringItem {
+  recipe_id?: string | null;
+  brand?: string;
   item_name: string;
   canonical_name: string;
   category: string;
@@ -418,6 +513,7 @@ export interface BrandDetailData {
   channels: BrandChannelStats[];
   branches: BrandBranchStats[];
   hourly: BrandHourlyStats[];
+  dailyTrend: DailyTrendPoint[];
   paretoSummary: {
     heroCount: number;
     secondaryCount: number;
@@ -504,11 +600,136 @@ export function buildWhereClause(filters?: QueryFilters, tablePrefix: string = '
   return `${p}status != 'CANCELLED' AND ${buildDateAndBranchFilterClause(filters, tablePrefix)}`;
 }
 
+function calcPctDelta(curr: number, prev: number): number | null {
+  if (prev <= 0) return curr > 0 ? 100 : null;
+  return Number((((curr - prev) / prev) * 100).toFixed(1));
+}
+
+function calcPtsDelta(curr: number, prev: number): number | null {
+  if (prev === 0 && curr === 0) return null;
+  return Number((curr - prev).toFixed(1));
+}
+
+export async function computePeriodDeltas(
+  filters?: QueryFilters,
+  brandName?: string
+): Promise<PeriodDeltaMetrics> {
+  const branchClause =
+    filters?.branch && filters.branch.toLowerCase() !== 'all'
+      ? ` AND LOWER(branch) = '${filters.branch.toLowerCase().replace(/'/g, "''")}'`
+      : '';
+  const brandClause = brandName
+    ? ` AND LOWER(brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+
+  let comparisonLabel = '7d vs Prior 7d';
+  let currDateCond = `CAST(created_at AS DATE) >= CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL 6 DAY`;
+  let prevDateCond = `CAST(created_at AS DATE) >= CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL 13 DAY AND CAST(created_at AS DATE) < CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL 6 DAY`;
+
+  const range = (filters?.range || 'all').toLowerCase();
+  if (filters?.from && filters?.to) {
+    const fromDate = new Date(`${filters.from}T00:00:00Z`);
+    const toDate = new Date(`${filters.to}T00:00:00Z`);
+    const spanDays = Math.max(1, Math.round((toDate.getTime() - fromDate.getTime()) / 86400000) + 1);
+    const prevTo = new Date(fromDate.getTime() - 86400000).toISOString().slice(0, 10);
+    const prevFrom = new Date(fromDate.getTime() - spanDays * 86400000).toISOString().slice(0, 10);
+    comparisonLabel = `vs Prior ${spanDays}d`;
+    currDateCond = `CAST(created_at AS DATE) >= '${filters.from.replace(/'/g, "''")}' AND CAST(created_at AS DATE) <= '${filters.to.replace(/'/g, "''")}'`;
+    prevDateCond = `CAST(created_at AS DATE) >= '${prevFrom}' AND CAST(created_at AS DATE) <= '${prevTo}'`;
+  } else if (range === 'today') {
+    comparisonLabel = 'vs Yesterday';
+    currDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE AS DATE)`;
+    prevDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 1 DAY AS DATE)`;
+  } else if (range === 'yesterday') {
+    comparisonLabel = 'vs Prior Day';
+    currDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 1 DAY AS DATE)`;
+    prevDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 2 DAY AS DATE)`;
+  } else if (range === '7d') {
+    comparisonLabel = 'vs Prior 7d';
+    currDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 7 DAY AS DATE)`;
+    prevDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 14 DAY AS DATE) AND CAST(created_at AS DATE) < CAST(CURRENT_DATE - INTERVAL 7 DAY AS DATE)`;
+  } else if (range === '30d') {
+    comparisonLabel = 'vs Prior 30d';
+    currDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 30 DAY AS DATE)`;
+    prevDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 60 DAY AS DATE) AND CAST(created_at AS DATE) < CAST(CURRENT_DATE - INTERVAL 30 DAY AS DATE)`;
+  }
+
+  const [orderWindowRows, cancelWindowRows] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        CASE
+          WHEN ${currDateCond} THEN 'curr'
+          WHEN ${prevDateCond} THEN 'prev'
+          ELSE 'other'
+        END AS win,
+        COUNT(*) AS orders,
+        COALESCE(SUM(gross_amount), 0) AS gmv,
+        COALESCE(SUM(net_payout), 0) AS net_payout,
+        COALESCE(SUM(merchant_promo_burn), 0) AS promo_burn,
+        COUNT(CASE WHEN prep_time_minutes IS NOT NULL THEN 1 END) AS kpt_orders,
+        COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches
+      FROM fact_orders
+      WHERE status != 'CANCELLED'${branchClause}${brandClause}
+        AND (${currDateCond} OR ${prevDateCond})
+      GROUP BY 1;
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        CASE
+          WHEN ${currDateCond} THEN 'curr'
+          WHEN ${prevDateCond} THEN 'prev'
+          ELSE 'other'
+        END AS win,
+        COUNT(*) AS cancel_cnt
+      FROM dim_order_cancellations
+      WHERE 1=1${branchClause}${brandClause}
+        AND (${currDateCond} OR ${prevDateCond})
+      GROUP BY 1;
+    `),
+  ]);
+
+  const currRow = orderWindowRows.find((r) => r.win === 'curr') || {};
+  const prevRow = orderWindowRows.find((r) => r.win === 'prev') || {};
+  const currCancel = Number(cancelWindowRows.find((r) => r.win === 'curr')?.cancel_cnt ?? 0);
+  const prevCancel = Number(cancelWindowRows.find((r) => r.win === 'prev')?.cancel_cnt ?? 0);
+
+  const currOrders = Number(currRow.orders ?? 0);
+  const prevOrders = Number(prevRow.orders ?? 0);
+  const currGmv = Number(currRow.gmv ?? 0);
+  const prevGmv = Number(prevRow.gmv ?? 0);
+  const currNet = Number(currRow.net_payout ?? 0);
+  const prevNet = Number(prevRow.net_payout ?? 0);
+  const currAov = currOrders > 0 ? currGmv / currOrders : 0;
+  const prevAov = prevOrders > 0 ? prevGmv / prevOrders : 0;
+
+  const currPromoRate = currGmv > 0 ? (Number(currRow.promo_burn ?? 0) / currGmv) * 100 : 0;
+  const prevPromoRate = prevGmv > 0 ? (Number(prevRow.promo_burn ?? 0) / prevGmv) * 100 : 0;
+
+  const currKpt = Number(currRow.kpt_orders ?? 0);
+  const prevKpt = Number(prevRow.kpt_orders ?? 0);
+  const currBreachRate = currKpt > 0 ? (Number(currRow.sla_breaches ?? 0) / currKpt) * 100 : 0;
+  const prevBreachRate = prevKpt > 0 ? (Number(prevRow.sla_breaches ?? 0) / prevKpt) * 100 : 0;
+
+  const currCancelRate = currOrders + currCancel > 0 ? (currCancel / (currOrders + currCancel)) * 100 : 0;
+  const prevCancelRate = prevOrders + prevCancel > 0 ? (prevCancel / (prevOrders + prevCancel)) * 100 : 0;
+
+  return {
+    comparisonLabel,
+    gmvDeltaPct: calcPctDelta(currGmv, prevGmv),
+    netPayoutDeltaPct: calcPctDelta(currNet, prevNet),
+    ordersDeltaPct: calcPctDelta(currOrders, prevOrders),
+    aovDeltaPct: calcPctDelta(currAov, prevAov),
+    promoBurnRateDeltaPts: prevOrders > 0 ? calcPtsDelta(currPromoRate, prevPromoRate) : null,
+    slaBreachRateDeltaPts: prevKpt > 0 ? calcPtsDelta(currBreachRate, prevBreachRate) : null,
+    cancelRateDeltaPts: prevOrders + prevCancel > 0 ? calcPtsDelta(currCancelRate, prevCancelRate) : null,
+  };
+}
+
 export async function getExecutiveSummary(filters?: QueryFilters): Promise<ExecutiveSummary> {
   const where = buildWhereClause(filters);
   const cancelWhere = buildDateAndBranchFilterClause(filters, 'c');
 
-  const [rows, cancelRows] = await Promise.all([
+  const [rows, cancelRows, deltas] = await Promise.all([
     runQuery<Record<string, unknown>>(`
       SELECT
         COUNT(*) AS total_orders,
@@ -547,6 +768,7 @@ export async function getExecutiveSummary(filters?: QueryFilters): Promise<Execu
       FROM dim_order_cancellations c
       WHERE ${cancelWhere};
     `),
+    computePeriodDeltas(filters),
   ]);
 
   const r = rows[0] || {};
@@ -573,6 +795,7 @@ export async function getExecutiveSummary(filters?: QueryFilters): Promise<Execu
     cancelled_gross_gmv: Number(cr.cancelled_gross_gmv ?? 0),
     cancelled_net_payout: Number(cr.cancelled_net_payout ?? 0),
     post_prep_cancelled_count: Number(cr.post_prep_cancelled_count ?? 0),
+    deltas,
   };
 }
 
@@ -679,6 +902,58 @@ export async function getHourlyDistribution(filters?: QueryFilters): Promise<Hou
     GROUP BY 1
     ORDER BY 1 ASC;
   `);
+}
+
+export async function getDailyRevenueTrend(
+  filters?: QueryFilters,
+  brandName?: string
+): Promise<DailyTrendPoint[]> {
+  const where = buildWhereClause(filters);
+  const brandClause = brandName
+    ? ` AND LOWER(brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+
+  const rows = await runQuery<Record<string, unknown>>(`
+    SELECT
+      strftime(created_at, '%Y-%m-%d') AS dt,
+      COUNT(*) AS order_count,
+      COALESCE(SUM(gross_amount), 0) AS gross_gmv,
+      COALESCE(SUM(net_payout), 0) AS net_payout,
+      COALESCE(SUM(merchant_promo_burn), 0) AS merchant_promo_burn,
+      CASE
+        WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(net_payout) / SUM(gross_amount)) * 100, 1)
+        ELSE 0
+      END AS net_realization_rate,
+      COALESCE(ROUND(AVG(prep_time_minutes), 1), 0) AS avg_prep_time_min,
+      COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches
+    FROM fact_orders
+    WHERE ${where}${brandClause} AND created_at IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1 ASC;
+  `);
+
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  return rows.map((r) => {
+    const dtStr = String(r.dt || '');
+    let dateLabel = dtStr;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dtStr)) {
+      const [, mm, dd] = dtStr.split('-');
+      const mIdx = parseInt(mm, 10) - 1;
+      dateLabel = `${dd} ${monthNames[mIdx] || mm}`;
+    }
+    return {
+      date: dtStr,
+      dateLabel,
+      order_count: Number(r.order_count ?? 0),
+      gross_gmv: Number(r.gross_gmv ?? 0),
+      net_payout: Number(r.net_payout ?? 0),
+      merchant_promo_burn: Number(r.merchant_promo_burn ?? 0),
+      net_realization_rate: Number(r.net_realization_rate ?? 0),
+      avg_prep_time_min: Number(r.avg_prep_time_min ?? 0),
+      sla_breaches: Number(r.sla_breaches ?? 0),
+    };
+  });
 }
 
 export async function getHeroRecipeBoms(
@@ -794,7 +1069,7 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
 
   // 1. KPI
   const cancelBrandWhere = `c.brand = '${escapedBrand}' AND ${buildDateAndBranchFilterClause(filters, 'c')}`;
-  const [kpiRows, cancelKpiRows, unitsRow] = await Promise.all([
+  const [kpiRows, cancelKpiRows, unitsRow, brandDeltas, dailyTrend] = await Promise.all([
     runQuery<Record<string, unknown>>(`
       SELECT
         COUNT(*) AS order_count,
@@ -839,6 +1114,8 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
       FROM fact_order_items
       WHERE ${combinedWhere};
     `),
+    computePeriodDeltas(filters, brandName),
+    getDailyRevenueTrend(filters, brandName),
   ]);
 
   const totalUnitsSold = unitsRow[0]?.total_units_sold ? Number(unitsRow[0].total_units_sold) : 0;
@@ -867,6 +1144,7 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
     cancelled_gross_gmv: cancelKpiRows[0]?.cancelled_gross_gmv ? Number(cancelKpiRows[0].cancelled_gross_gmv) : 0,
     cancelled_net_payout: cancelKpiRows[0]?.cancelled_net_payout ? Number(cancelKpiRows[0].cancelled_net_payout) : 0,
     post_prep_cancelled_count: cancelKpiRows[0]?.post_prep_cancelled_count ? Number(cancelKpiRows[0].post_prep_cancelled_count) : 0,
+    deltas: brandDeltas,
   };
 
   // 2. SKUs Pareto
@@ -939,6 +1217,7 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
   // 2B. Track B: Theoretical Food Cost Engine & Menu Engineering Matrix
   // Join fact_order_items against dim_recipes
   const rawBomItems = await runQuery<{
+    recipe_id: string | null;
     item_name: string;
     canonical_name: string | null;
     category: string;
@@ -955,6 +1234,7 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
     target_food_cost_pct: number | null;
   }>(`
     SELECT
+      MAX(r.recipe_id) AS recipe_id,
       foi.item_name,
       MAX(r.canonical_name) AS canonical_name,
       COALESCE(MAX(r.category), COALESCE(foi.category, 'General')) AS category,
@@ -1060,6 +1340,8 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
       : '100% vegetarian culinary recipe BOM & leak-proof container';
 
     return {
+      recipe_id: row.recipe_id ? String(row.recipe_id) : null,
+      brand: brandName,
       item_name: itemName,
       canonical_name: row.canonical_name ? String(row.canonical_name) : itemName,
       category: cat,
@@ -1247,6 +1529,7 @@ export async function getBrandDetail(slugOrName: string, filters?: QueryFilters)
     channels,
     branches,
     hourly,
+    dailyTrend,
     paretoSummary: {
       heroCount,
       secondaryCount,
@@ -2094,3 +2377,453 @@ export async function getDataFreshness(filters?: QueryFilters): Promise<DataFres
     itemCoverage,
   };
 }
+
+export async function getPrimeCostSummary(filters?: QueryFilters): Promise<PrimeCostSummary> {
+  const whereOrders = buildWhereClause(filters, 'o');
+  const whereItems = buildWhereClause(filters, 'foi');
+
+  const [orderSummaryRows, itemCogsRows] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COALESCE(SUM(o.gross_amount), 0) AS gross_gmv,
+        COALESCE(SUM(o.net_payout), 0) AS net_revenue,
+        COALESCE(SUM(o.merchant_promo_burn), 0) AS promo_burn,
+        COUNT(DISTINCT strftime(o.created_at, '%Y-%m-%d')) AS active_days,
+        strftime(MIN(o.created_at), '%Y-%m-%d') AS min_dt,
+        strftime(MAX(o.created_at), '%Y-%m-%d') AS max_dt
+      FROM fact_orders o
+      WHERE ${whereOrders};
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        COALESCE(SUM(COALESCE(foi.total_price, 0)), 0) AS item_exploded_rev,
+        COALESCE(SUM(
+          COALESCE(foi.item_qty, 1) * COALESCE(
+            r.raw_food_cost,
+            ROUND(COALESCE(foi.item_price, 35000) * (
+              CASE
+                WHEN LOWER(COALESCE(foi.category, '')) LIKE '%drink%'
+                  OR LOWER(COALESCE(foi.category, '')) LIKE '%espresso%'
+                  OR LOWER(foi.item_name) LIKE '%coffee%'
+                  OR LOWER(foi.item_name) LIKE '%latte%'
+                  OR LOWER(foi.item_name) LIKE '%tea%' THEN 0.16
+                WHEN LOWER(COALESCE(foi.category, '')) LIKE '%side%'
+                  OR LOWER(foi.item_name) LIKE '%tots%'
+                  OR LOWER(foi.item_name) LIKE '%fries%' THEN 0.23
+                ELSE 0.27
+              END
+            ), 0)
+          )
+        ), 0) AS raw_food_cost_sum,
+        COALESCE(SUM(
+          COALESCE(foi.item_qty, 1) * (
+            CASE
+              WHEN LOWER(foi.provider) LIKE '%pos%' OR LOWER(foi.provider) LIKE '%majoo%' OR LOWER(foi.provider) LIKE '%greenville%'
+                THEN COALESCE(r.packaging_dine_in, 0)
+              ELSE COALESCE(r.packaging_delivery, 2200)
+            END
+          )
+        ), 0) AS packaging_cost_sum
+      FROM fact_order_items foi
+      LEFT JOIN dim_recipes r
+        ON LOWER(foi.brand) = LOWER(r.brand)
+       AND LOWER(TRIM(foi.item_name)) = LOWER(TRIM(r.item_name))
+      WHERE ${whereItems}
+        AND LOWER(foi.item_name) NOT LIKE '%cutler%';
+    `),
+  ]);
+
+  const ord = orderSummaryRows[0] || {};
+  const itm = itemCogsRows[0] || {};
+
+  const grossGmv = Number(ord.gross_gmv ?? 0);
+  const netRevenue = Number(ord.net_revenue ?? 0);
+  const merchantPromoBurn = Number(ord.promo_burn ?? 0);
+  const platformFeesAndCommissions = Math.max(0, grossGmv - netRevenue - merchantPromoBurn);
+  const netRealizationPct = grossGmv > 0 ? Number(((netRevenue / grossGmv) * 100).toFixed(1)) : 0;
+  const activeDaysCount = Math.max(1, Number(ord.active_days ?? 1));
+  const minDt = ord.min_dt ? String(ord.min_dt) : '2026-09-01';
+  const maxDt = ord.max_dt ? String(ord.max_dt) : '2026-09-26';
+
+  const itemExplodedRev = Number(itm.item_exploded_rev ?? 0);
+  const unscaledRawFood = Number(itm.raw_food_cost_sum ?? 0);
+  const unscaledPkg = Number(itm.packaging_cost_sum ?? 0);
+
+  // Scale theoretical COGS proportionally if order-item CSV coverage is partial (<92% of Gross GMV)
+  const coverageScale =
+    itemExplodedRev > 0 && itemExplodedRev < grossGmv * 0.92
+      ? Math.min(2.5, grossGmv / itemExplodedRev)
+      : 1.0;
+
+  const rawFoodCost = Math.round(unscaledRawFood * coverageScale);
+  const packagingCost = Math.round(unscaledPkg * coverageScale);
+  const totalCogs = rawFoodCost + packagingCost;
+
+  const cogsPctOfNetRevenue = netRevenue > 0 ? Number(((totalCogs / netRevenue) * 100).toFixed(1)) : 0;
+  const cogsPctOfGrossGmv = grossGmv > 0 ? Number(((totalCogs / grossGmv) * 100).toFixed(1)) : 0;
+  const grossMarginAfterCogs = netRevenue - totalCogs;
+  const grossMarginAfterCogsPct =
+    netRevenue > 0 ? Number(((grossMarginAfterCogs / netRevenue) * 100).toFixed(1)) : 0;
+
+  // Check if labor applies (Greenville Flagship has Majoo attendance logs; Kemang-only filter excludes Greenville labor)
+  const branchFilter = (filters?.branch || 'all').toLowerCase();
+  const laborIncluded = branchFilter !== 'kemang';
+  const laborOutletScope = laborIncluded
+    ? 'Greenville Flagship (Majoo POS Shifts + Prorated Base Salary)'
+    : 'Kemang Cloud Kitchen selected (Majoo POS attendance tracks Greenville Flagship)';
+
+  let activeStaffCount = 0;
+  let paidShiftsCount = 0;
+  let effectiveLaborHours = 0;
+  let lateIncidentsCount = 0;
+  let grossShiftAndBaseWages = 0;
+  let latePenaltiesDeducted = 0;
+  let netLaborCost = 0;
+
+  if (laborIncluded && grossGmv > 0) {
+    try {
+      const [attRows, empBaseRows] = await Promise.all([
+        runQuery<Record<string, unknown>>(`
+          SELECT
+            COUNT(DISTINCT a.employee_name) AS staff_cnt,
+            COUNT(*) AS paid_shifts,
+            COALESCE(ROUND(SUM(COALESCE(a.effective_hours, 9.0)), 1), 0) AS total_hours,
+            COALESCE(SUM(COALESCE(e.daily_rate, 85000)), 0) AS shift_wages,
+            COALESCE(SUM(
+              CASE
+                WHEN a.clock_in IS NOT NULL
+                 AND LENGTH(TRIM(a.clock_in)) >= 5
+                 AND SUBSTR(TRIM(a.clock_in), 1, 5) > COALESCE(e.shift_start_time, '07:30')
+                THEN 1 ELSE 0
+              END
+            ), 0) AS late_cnt,
+            COALESCE(SUM(
+              CASE
+                WHEN a.clock_in IS NOT NULL
+                 AND LENGTH(TRIM(a.clock_in)) >= 5
+                 AND SUBSTR(TRIM(a.clock_in), 1, 5) > COALESCE(e.shift_start_time, '07:30')
+                THEN COALESCE(e.late_penalty_rate, 20000) ELSE 0
+              END
+            ), 0) AS late_penalties
+          FROM fact_attendance a
+          LEFT JOIN dim_employees e ON LOWER(a.employee_name) = LOWER(e.employee_name)
+          WHERE a.work_date >= DATE '${minDt}'
+            AND a.work_date <= DATE '${maxDt}'
+            AND COALESCE(a.anomaly_type, 'none') != 'missing_clock_out';
+        `),
+        runQuery<Record<string, unknown>>(`
+          SELECT
+            COUNT(*) AS active_emp_cnt,
+            COALESCE(SUM(basic_salary), 0) AS monthly_basic_sum
+          FROM dim_employees
+          WHERE is_active = TRUE;
+        `),
+      ]);
+
+      const att = attRows[0] || {};
+      const emp = empBaseRows[0] || {};
+
+      activeStaffCount = Number(att.staff_cnt ?? emp.active_emp_cnt ?? 0);
+      paidShiftsCount = Number(att.paid_shifts ?? 0);
+      effectiveLaborHours = Number(att.total_hours ?? 0);
+      lateIncidentsCount = Number(att.late_cnt ?? 0);
+
+      const shiftWages = Number(att.shift_wages ?? 0);
+      const monthlyBasicSum = Number(emp.monthly_basic_sum ?? 6600000);
+      const proratedBaseWages = Math.round((monthlyBasicSum / 30) * activeDaysCount);
+
+      grossShiftAndBaseWages = shiftWages + proratedBaseWages;
+      latePenaltiesDeducted = Number(att.late_penalties ?? 0);
+      netLaborCost = Math.max(0, grossShiftAndBaseWages - latePenaltiesDeducted);
+    } catch {
+      // Fallback if attendance tables are not yet initialized
+      if (laborIncluded) {
+        activeStaffCount = 8;
+      }
+    }
+  }
+
+  const laborPctOfNetRevenue =
+    netRevenue > 0 ? Number(((netLaborCost / netRevenue) * 100).toFixed(1)) : 0;
+  const laborPctOfGrossGmv =
+    grossGmv > 0 ? Number(((netLaborCost / grossGmv) * 100).toFixed(1)) : 0;
+  const revenuePerLaborHour =
+    effectiveLaborHours > 0 ? Math.round(netRevenue / effectiveLaborHours) : 0;
+
+  const primeCost = totalCogs + netLaborCost;
+  const primeCostPctOfNetRevenue =
+    netRevenue > 0 ? Number(((primeCost / netRevenue) * 100).toFixed(1)) : 0;
+  const primeCostPctOfGrossGmv =
+    grossGmv > 0 ? Number(((primeCost / grossGmv) * 100).toFixed(1)) : 0;
+  const primeCostTargetPct = laborIncluded ? 58.0 : 35.0;
+
+  const primeCostStatus: 'Optimal' | 'Watchlist' | 'High Strain' =
+    primeCostPctOfNetRevenue <= primeCostTargetPct
+      ? 'Optimal'
+      : primeCostPctOfNetRevenue <= primeCostTargetPct + 8.0
+      ? 'Watchlist'
+      : 'High Strain';
+
+  const netContributionMarginRp = netRevenue - primeCost;
+  const netContributionMarginPct =
+    netRevenue > 0 ? Number(((netContributionMarginRp / netRevenue) * 100).toFixed(1)) : 0;
+
+  return {
+    grossGmv,
+    merchantPromoBurn,
+    platformFeesAndCommissions,
+    netRevenue,
+    netRealizationPct,
+    rawFoodCost,
+    packagingCost,
+    totalCogs,
+    cogsPctOfNetRevenue,
+    cogsPctOfGrossGmv,
+    grossMarginAfterCogs,
+    grossMarginAfterCogsPct,
+    laborIncluded,
+    laborOutletScope,
+    activeStaffCount,
+    paidShiftsCount,
+    effectiveLaborHours,
+    lateIncidentsCount,
+    grossShiftAndBaseWages,
+    latePenaltiesDeducted,
+    netLaborCost,
+    laborPctOfNetRevenue,
+    laborPctOfGrossGmv,
+    revenuePerLaborHour,
+    primeCost,
+    primeCostPctOfNetRevenue,
+    primeCostPctOfGrossGmv,
+    primeCostTargetPct,
+    primeCostStatus,
+    netContributionMarginRp,
+    netContributionMarginPct,
+    activeDaysCount,
+    dateSpanLabel: `${minDt} to ${maxDt} (${activeDaysCount}d)`,
+  };
+}
+
+export async function getCatalogRecipesAndUnmappedSkus(
+  brandFilter?: string
+): Promise<CatalogBomItem[]> {
+  const brandCond = brandFilter
+    ? `AND LOWER(brand) = '${brandFilter.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+
+  const [recipeRows, skuRows] = await Promise.all([
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        recipe_id,
+        brand,
+        item_name,
+        canonical_name,
+        category,
+        bom_summary,
+        raw_food_cost,
+        packaging_dine_in,
+        packaging_delivery,
+        target_food_cost_pct,
+        is_hero_bom
+      FROM dim_recipes
+      WHERE 1=1 ${brandCond}
+      ORDER BY is_hero_bom DESC, brand ASC, canonical_name ASC;
+    `),
+    runQuery<Record<string, unknown>>(`
+      SELECT
+        foi.brand,
+        foi.item_name,
+        COALESCE(MAX(foi.category), 'General') AS category,
+        CAST(SUM(COALESCE(foi.item_qty, 1)) AS INTEGER) AS total_units_sold,
+        CAST(ROUND(AVG(COALESCE(foi.item_price, 0)), 0) AS DOUBLE) AS realized_menu_price
+      FROM fact_order_items foi
+      WHERE foi.status != 'CANCELLED'
+        AND LOWER(foi.item_name) NOT LIKE '%cutler%'
+        ${brandFilter ? `AND LOWER(foi.brand) = '${brandFilter.toLowerCase().replace(/'/g, "''")}'` : ''}
+      GROUP BY foi.brand, foi.item_name
+      ORDER BY total_units_sold DESC;
+    `),
+  ]);
+
+  const seededIds = new Set(MASTER_RECIPES.map((r) => r.recipe_id));
+  const skuStatsMap = new Map<string, { units: number; price: number; category: string }>();
+
+  for (const s of skuRows) {
+    const key = `${String(s.brand).toLowerCase()}::${String(s.item_name).trim().toLowerCase()}`;
+    skuStatsMap.set(key, {
+      units: Number(s.total_units_sold ?? 0),
+      price: Number(s.realized_menu_price ?? 0),
+      category: String(s.category || 'General'),
+    });
+  }
+
+  const mappedKeys = new Set<string>();
+  const catalogItems: CatalogBomItem[] = [];
+
+  for (const r of recipeRows) {
+    const brand = String(r.brand);
+    const itemName = String(r.item_name);
+    const key = `${brand.toLowerCase()}::${itemName.trim().toLowerCase()}`;
+    mappedKeys.add(key);
+
+    const stats = skuStatsMap.get(key);
+    const rId = String(r.recipe_id);
+
+    catalogItems.push({
+      recipe_id: rId,
+      brand,
+      item_name: itemName,
+      canonical_name: String(r.canonical_name || itemName),
+      category: String(r.category || stats?.category || 'General'),
+      bom_summary: String(r.bom_summary || ''),
+      raw_food_cost: Number(r.raw_food_cost ?? 0),
+      packaging_dine_in: Number(r.packaging_dine_in ?? 0),
+      packaging_delivery: Number(r.packaging_delivery ?? 0),
+      target_food_cost_pct: Number(r.target_food_cost_pct ?? 28),
+      is_hero_bom: Boolean(r.is_hero_bom),
+      has_recipe_bom: true,
+      is_seeded_default: seededIds.has(rId),
+      realized_menu_price: stats?.price && stats.price > 0 ? stats.price : 38000,
+      total_units_sold: stats?.units ?? 0,
+    });
+  }
+
+  // Append unmapped SKUs from fact_order_items so operators can map them in 1 click
+  for (const s of skuRows) {
+    const brand = String(s.brand);
+    const itemName = String(s.item_name);
+    const key = `${brand.toLowerCase()}::${itemName.trim().toLowerCase()}`;
+    if (mappedKeys.has(key)) continue;
+
+    const menuPrice = Number(s.realized_menu_price ?? 0) > 0 ? Number(s.realized_menu_price) : 35000;
+    const cat = String(s.category || 'General');
+    const lowerName = itemName.toLowerCase();
+    const isBev =
+      cat.toLowerCase().includes('drink') ||
+      lowerName.includes('coffee') ||
+      lowerName.includes('latte') ||
+      lowerName.includes('tea');
+
+    catalogItems.push({
+      recipe_id: null,
+      brand,
+      item_name: itemName,
+      canonical_name: itemName,
+      category: cat,
+      bom_summary: 'Estimated fallback BOM (Click to map exact culinary recipe & packaging cost)',
+      raw_food_cost: Math.round(menuPrice * (isBev ? 0.16 : 0.27)),
+      packaging_dine_in: 0,
+      packaging_delivery: isBev ? 1950 : 2500,
+      target_food_cost_pct: isBev ? 18.0 : 28.0,
+      is_hero_bom: false,
+      has_recipe_bom: false,
+      is_seeded_default: false,
+      realized_menu_price: menuPrice,
+      total_units_sold: Number(s.total_units_sold ?? 0),
+    });
+  }
+
+  return catalogItems;
+}
+
+export async function upsertRecipeBom(input: UpsertRecipeBomInput): Promise<{ recipe_id: string }> {
+  const esc = (s: string) => (s || '').replace(/'/g, "''").trim();
+  const brand = esc(input.brand);
+  const itemName = esc(input.item_name);
+  const canonicalName = esc(input.canonical_name || input.item_name);
+  const category = esc(input.category || 'General');
+  const bomSummary = esc(input.bom_summary || 'Custom culinary recipe BOM');
+  const rawFoodCost = Math.max(0, Math.round(Number(input.raw_food_cost) || 0));
+  const pkgDineIn = Math.max(0, Math.round(Number(input.packaging_dine_in) || 0));
+  const pkgDelivery = Math.max(0, Math.round(Number(input.packaging_delivery) || 0));
+  const targetFcPct = Math.max(1, Math.min(95, Number(Number(input.target_food_cost_pct || 28).toFixed(1))));
+  const isHero = Boolean(input.is_hero_bom);
+
+  // Check if a row already exists for (brand, item_name) or recipe_id
+  let recipeId = input.recipe_id ? esc(input.recipe_id) : '';
+  if (!recipeId) {
+    const existing = await runQuery<{ recipe_id: string }>(`
+      SELECT recipe_id
+      FROM dim_recipes
+      WHERE LOWER(brand) = LOWER('${brand}')
+        AND LOWER(TRIM(item_name)) = LOWER(TRIM('${itemName}'))
+      LIMIT 1;
+    `);
+    if (existing[0]?.recipe_id) {
+      recipeId = esc(String(existing[0].recipe_id));
+    } else {
+      const slugBrand = brand
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '')
+        .slice(0, 5);
+      const slugItem = itemName
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 18);
+      recipeId = `CUSTOM-${slugBrand}-${slugItem}`;
+    }
+  }
+
+  await runQuery(`
+    INSERT INTO dim_recipes (
+      recipe_id, brand, item_name, canonical_name, category,
+      bom_summary, raw_food_cost, packaging_dine_in, packaging_delivery,
+      target_food_cost_pct, is_hero_bom
+    )
+    VALUES (
+      '${recipeId}',
+      '${brand}',
+      '${itemName}',
+      '${canonicalName}',
+      '${category}',
+      '${bomSummary}',
+      ${rawFoodCost},
+      ${pkgDineIn},
+      ${pkgDelivery},
+      ${targetFcPct},
+      ${isHero ? 'TRUE' : 'FALSE'}
+    )
+    ON CONFLICT (recipe_id) DO UPDATE SET
+      canonical_name = EXCLUDED.canonical_name,
+      category = EXCLUDED.category,
+      bom_summary = EXCLUDED.bom_summary,
+      raw_food_cost = EXCLUDED.raw_food_cost,
+      packaging_dine_in = EXCLUDED.packaging_dine_in,
+      packaging_delivery = EXCLUDED.packaging_delivery,
+      target_food_cost_pct = EXCLUDED.target_food_cost_pct,
+      is_hero_bom = EXCLUDED.is_hero_bom;
+  `);
+
+  return { recipe_id: recipeId };
+}
+
+export async function deleteOrResetRecipeBom(
+  recipeId: string
+): Promise<{ resetToDefault: boolean; deleted: boolean }> {
+  const escId = (recipeId || '').replace(/'/g, "''").trim();
+  const seeded = MASTER_RECIPES.find((r) => r.recipe_id === recipeId);
+
+  if (seeded) {
+    const esc = (s: string) => s.replace(/'/g, "''");
+    await runQuery(`
+      UPDATE dim_recipes
+      SET
+        canonical_name = '${esc(seeded.canonical_name)}',
+        category = '${esc(seeded.category)}',
+        bom_summary = '${esc(seeded.bom_summary)}',
+        raw_food_cost = ${seeded.raw_food_cost},
+        packaging_dine_in = ${seeded.packaging_dine_in},
+        packaging_delivery = ${seeded.packaging_delivery},
+        target_food_cost_pct = ${seeded.target_food_cost_pct},
+        is_hero_bom = ${seeded.is_hero_bom ? 'TRUE' : 'FALSE'}
+      WHERE recipe_id = '${escId}';
+    `);
+    return { resetToDefault: true, deleted: false };
+  }
+
+  await runQuery(`DELETE FROM dim_recipes WHERE recipe_id = '${escId}';`);
+  return { resetToDefault: false, deleted: true };
+}
+

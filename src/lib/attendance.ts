@@ -129,6 +129,9 @@ export interface EmployeePayslipSummary {
 
   net_take_home_pay: number;
   notes: string;
+  is_paid: boolean;
+  paid_at: string | null;
+  payment_note: string;
 
   late_logs: AttendanceRecord[];
   anomaly_logs: AttendanceRecord[];
@@ -149,6 +152,9 @@ export interface PayrollCycleOption {
   badge: string;
   log_count: number;
   override_count: number;
+  paid_count: number;
+  active_employee_count: number;
+  payment_status: 'paid' | 'partial' | 'unpaid';
   is_completed: boolean;
   is_current_running: boolean;
   is_future: boolean;
@@ -184,6 +190,11 @@ export interface AttendanceCycleReport {
     total_bonuses_paid: number;
     total_kasbon_deducted: number;
     total_net_take_home: number;
+    paid_employees_count: number;
+    unpaid_employees_count: number;
+    total_paid_net_amount: number;
+    total_unpaid_net_amount: number;
+    cycle_payment_status: 'paid' | 'partial' | 'unpaid';
   };
   payslips: EmployeePayslipSummary[];
   recent_logs: AttendanceRecord[];
@@ -556,6 +567,18 @@ export async function initializeAttendanceSchemaAndSeed(
       );
     `);
 
+    await conn.run(`
+      CREATE TABLE IF NOT EXISTS payroll_payment_status (
+        period_key VARCHAR NOT NULL,
+        employee_name VARCHAR NOT NULL,
+        is_paid BOOLEAN DEFAULT FALSE,
+        paid_at VARCHAR,
+        payment_note VARCHAR DEFAULT '',
+        updated_at TIMESTAMP,
+        PRIMARY KEY (period_key, employee_name)
+      );
+    `);
+
     const empValues = MASTER_EMPLOYEES.map(
       (e) => `(
         '${sqlEsc(e.employee_name)}',
@@ -738,6 +761,46 @@ function timeToMinutes(hhmm: string): number | null {
   return h * 60 + m;
 }
 
+function formatNowWib(): string {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+async function ensurePayrollPaymentStatusTable(): Promise<void> {
+  const db = await getDuckDB();
+  const conn = await db.connect();
+  try {
+    await conn.run(`
+      CREATE TABLE IF NOT EXISTS payroll_payment_status (
+        period_key VARCHAR NOT NULL,
+        employee_name VARCHAR NOT NULL,
+        is_paid BOOLEAN DEFAULT FALSE,
+        paid_at VARCHAR,
+        payment_note VARCHAR DEFAULT '',
+        updated_at TIMESTAMP,
+        PRIMARY KEY (period_key, employee_name)
+      );
+    `);
+  } finally {
+    try {
+      conn.closeSync();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 /**
  * Generates chronological 16th-to-15th payroll periods ordered by Year and Month.
  * For (year, month):
@@ -748,7 +811,9 @@ function timeToMinutes(hhmm: string): number | null {
 export function buildChronologicalPayrollCycles(
   referenceDateStr: string,
   logCountsByPeriod: Map<string, number>,
-  overrideCountsByPeriod: Map<string, number>
+  overrideCountsByPeriod: Map<string, number>,
+  paidCountsByPeriod: Map<string, number> = new Map(),
+  expectedEmpCount = 8
 ): { years: number[]; cycles: PayrollCycleOption[]; defaultPeriodKey: string } {
   const refYear = parseInt(referenceDateStr.slice(0, 4), 10) || 2026;
   const years = [refYear - 1, refYear]; // e.g. [2025, 2026]
@@ -782,6 +847,13 @@ export function buildChronologicalPayrollCycles(
 
       const logCount = logCountsByPeriod.get(periodKey) || 0;
       const overrideCount = overrideCountsByPeriod.get(periodKey) || 0;
+      const paidCount = paidCountsByPeriod.get(periodKey) || 0;
+      const paymentStatus: 'paid' | 'partial' | 'unpaid' =
+        expectedEmpCount > 0 && paidCount >= expectedEmpCount
+          ? 'paid'
+          : paidCount > 0
+            ? 'partial'
+            : 'unpaid';
 
       let badge = `16 ${prevMonthShort} – 15 ${monthShort}`;
       if (isFuture) {
@@ -806,6 +878,9 @@ export function buildChronologicalPayrollCycles(
         badge,
         log_count: logCount,
         override_count: overrideCount,
+        paid_count: paidCount,
+        active_employee_count: expectedEmpCount,
+        payment_status: paymentStatus,
         is_completed: isCompleted,
         is_current_running: isCurrentRunning,
         is_future: isFuture,
@@ -839,24 +914,31 @@ export function buildChronologicalPayrollCycles(
 export async function getAttendanceCycleReport(params?: {
   periodKey?: string;
 }): Promise<AttendanceCycleReport> {
-  await getDuckDB();
+  await ensurePayrollPaymentStatusTable();
 
   // Inspect max date in fact_attendance to anchor reference date (at least 2026-09-26)
-  const [maxDateRows, allDatesRaw, allOverridesRaw] = await Promise.all([
-    runQuery<{ max_d: string | null }>(
-      `SELECT CAST(MAX(work_date) AS VARCHAR) as max_d FROM fact_attendance`
-    ),
-    runQuery<{ work_date: string; cnt: number }>(`
-      SELECT CAST(work_date AS VARCHAR) as work_date, COUNT(*) as cnt
-      FROM fact_attendance
-      GROUP BY work_date
-    `),
-    runQuery<{ period_key: string; cnt: number }>(`
-      SELECT period_key, COUNT(*) as cnt
-      FROM payroll_period_adjustments
-      GROUP BY period_key
-    `),
-  ]);
+  const [maxDateRows, allDatesRaw, allOverridesRaw, allPaidCountsRaw] =
+    await Promise.all([
+      runQuery<{ max_d: string | null }>(
+        `SELECT CAST(MAX(work_date) AS VARCHAR) as max_d FROM fact_attendance`
+      ),
+      runQuery<{ work_date: string; cnt: number }>(`
+        SELECT CAST(work_date AS VARCHAR) as work_date, COUNT(*) as cnt
+        FROM fact_attendance
+        GROUP BY work_date
+      `),
+      runQuery<{ period_key: string; cnt: number }>(`
+        SELECT period_key, COUNT(*) as cnt
+        FROM payroll_period_adjustments
+        GROUP BY period_key
+      `),
+      runQuery<{ period_key: string; cnt: number }>(`
+        SELECT period_key, COUNT(*) as cnt
+        FROM payroll_payment_status
+        WHERE is_paid = TRUE
+        GROUP BY period_key
+      `),
+    ]);
 
   const dbMaxDate = maxDateRows[0]?.max_d || '2026-09-26';
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -895,10 +977,19 @@ export async function getAttendanceCycleReport(params?: {
     overrideCountsByPeriod.set(o.period_key, Number(o.cnt));
   }
 
+  const paidCountsByPeriod = new Map<string, number>();
+  for (const p of allPaidCountsRaw) {
+    paidCountsByPeriod.set(p.period_key, Number(p.cnt));
+  }
+
+  const expectedActiveCount = MASTER_EMPLOYEES.filter((e) => e.is_active).length;
+
   const { years, cycles, defaultPeriodKey } = buildChronologicalPayrollCycles(
     referenceDate,
     logCountsByPeriod,
-    overrideCountsByPeriod
+    overrideCountsByPeriod,
+    paidCountsByPeriod,
+    expectedActiveCount
   );
 
   // Enforce only selectable previous periods; fallback to defaultPeriodKey if requested is future/invalid
@@ -916,102 +1007,119 @@ export async function getAttendanceCycleReport(params?: {
   const cycleLabel = selectedCycle.label;
   const salaryCode = selectedCycle.salary_code;
 
-  const [employeesRaw, logsRaw, adjustmentsRaw] = await Promise.all([
-    runQuery<{
-      employee_name: string;
-      full_name: string;
-      role: string;
-      outlet: string;
-      join_date_label: string;
-      shift_start_time: string;
-      basic_salary: number;
-      daily_rate: number;
-      late_penalty_rate: number;
-      no_late_bonus: number;
-      is_active: boolean;
-    }>(`
-      SELECT
-        employee_name, full_name, role, outlet, join_date_label,
-        shift_start_time, basic_salary, daily_rate, late_penalty_rate,
-        no_late_bonus, is_active
-      FROM dim_employees
-      ORDER BY is_active DESC, employee_name ASC
-    `),
-    runQuery<{
-      attendance_id: string;
-      work_date: string;
-      employee_name: string;
-      outlet: string;
-      clock_in: string;
-      clock_out: string;
-      raw_duration: string;
-      duration_seconds: number;
-      effective_hours: number;
-      anomaly_type: AttendanceAnomalyType;
-      status: string;
-      notes: string;
-      source_file: string;
-    }>(`
-      SELECT
-        attendance_id,
-        CAST(work_date AS VARCHAR) as work_date,
-        employee_name,
-        outlet,
-        clock_in,
-        clock_out,
-        raw_duration,
-        duration_seconds,
-        effective_hours,
-        anomaly_type,
-        status,
-        notes,
-        source_file
-      FROM fact_attendance
-      WHERE work_date >= DATE '${sqlEsc(startDate)}'
-        AND work_date <= DATE '${sqlEsc(endDate)}'
-      ORDER BY work_date DESC, clock_in DESC
-    `),
-    runQuery<{
-      period_key: string;
-      employee_name: string;
-      shift_start_override: string | null;
-      basic_salary_override: number | null;
-      daily_rate_override: number | null;
-      late_penalty_override: number | null;
-      no_late_bonus_override: number | null;
-      daily_count_override: number | null;
-      late_count_override: number | null;
-      bonus_qty_override: number | null;
-      bonus_override: number | null;
-      custom_desc: string;
-      custom_qty: number;
-      custom_unit_value: number;
-      kasbon_qty: number;
-      kasbon_unit_value: number;
-      notes: string;
-    }>(`
-      SELECT
-        period_key,
-        employee_name,
-        shift_start_override,
-        basic_salary_override,
-        daily_rate_override,
-        late_penalty_override,
-        no_late_bonus_override,
-        daily_count_override,
-        late_count_override,
-        bonus_qty_override,
-        bonus_override,
-        custom_desc,
-        custom_qty,
-        custom_unit_value,
-        kasbon_qty,
-        kasbon_unit_value,
-        notes
-      FROM payroll_period_adjustments
-      WHERE period_key = '${sqlEsc(periodKey)}'
-    `),
-  ]);
+  const [employeesRaw, logsRaw, adjustmentsRaw, paymentStatusesRaw] =
+    await Promise.all([
+      runQuery<{
+        employee_name: string;
+        full_name: string;
+        role: string;
+        outlet: string;
+        join_date_label: string;
+        shift_start_time: string;
+        basic_salary: number;
+        daily_rate: number;
+        late_penalty_rate: number;
+        no_late_bonus: number;
+        is_active: boolean;
+      }>(`
+        SELECT
+          employee_name, full_name, role, outlet, join_date_label,
+          shift_start_time, basic_salary, daily_rate, late_penalty_rate,
+          no_late_bonus, is_active
+        FROM dim_employees
+        ORDER BY is_active DESC, employee_name ASC
+      `),
+      runQuery<{
+        attendance_id: string;
+        work_date: string;
+        employee_name: string;
+        outlet: string;
+        clock_in: string;
+        clock_out: string;
+        raw_duration: string;
+        duration_seconds: number;
+        effective_hours: number;
+        anomaly_type: AttendanceAnomalyType;
+        status: string;
+        notes: string;
+        source_file: string;
+      }>(`
+        SELECT
+          attendance_id,
+          CAST(work_date AS VARCHAR) as work_date,
+          employee_name,
+          outlet,
+          clock_in,
+          clock_out,
+          raw_duration,
+          duration_seconds,
+          effective_hours,
+          anomaly_type,
+          status,
+          notes,
+          source_file
+        FROM fact_attendance
+        WHERE work_date >= DATE '${sqlEsc(startDate)}'
+          AND work_date <= DATE '${sqlEsc(endDate)}'
+        ORDER BY work_date DESC, clock_in DESC
+      `),
+      runQuery<{
+        period_key: string;
+        employee_name: string;
+        shift_start_override: string | null;
+        basic_salary_override: number | null;
+        daily_rate_override: number | null;
+        late_penalty_override: number | null;
+        no_late_bonus_override: number | null;
+        daily_count_override: number | null;
+        late_count_override: number | null;
+        bonus_qty_override: number | null;
+        bonus_override: number | null;
+        custom_desc: string;
+        custom_qty: number;
+        custom_unit_value: number;
+        kasbon_qty: number;
+        kasbon_unit_value: number;
+        notes: string;
+      }>(`
+        SELECT
+          period_key,
+          employee_name,
+          shift_start_override,
+          basic_salary_override,
+          daily_rate_override,
+          late_penalty_override,
+          no_late_bonus_override,
+          daily_count_override,
+          late_count_override,
+          bonus_qty_override,
+          bonus_override,
+          custom_desc,
+          custom_qty,
+          custom_unit_value,
+          kasbon_qty,
+          kasbon_unit_value,
+          notes
+        FROM payroll_period_adjustments
+        WHERE period_key = '${sqlEsc(periodKey)}'
+      `),
+      runQuery<{
+        period_key: string;
+        employee_name: string;
+        is_paid: boolean;
+        paid_at: string | null;
+        payment_note: string | null;
+      }>(`
+        SELECT
+          period_key,
+          employee_name,
+          is_paid,
+          paid_at,
+          payment_note
+        FROM payroll_payment_status
+        WHERE period_key = '${sqlEsc(periodKey)}'
+      `),
+    ]);
 
   const empMap = new Map<string, EmployeeMaster>();
   for (const e of employeesRaw) {
@@ -1075,6 +1183,18 @@ export async function getAttendanceCycleReport(params?: {
     });
   }
 
+  const paymentMap = new Map<
+    string,
+    { is_paid: boolean; paid_at: string | null; payment_note: string }
+  >();
+  for (const ps of paymentStatusesRaw) {
+    paymentMap.set(ps.employee_name, {
+      is_paid: Boolean(ps.is_paid),
+      paid_at: ps.paid_at || null,
+      payment_note: ps.payment_note || '',
+    });
+  }
+
   const enrichedLogs: AttendanceRecord[] = logsRaw.map((l) => {
     const emp = empMap.get(l.employee_name);
     const adj = adjMap.get(l.employee_name);
@@ -1108,6 +1228,7 @@ export async function getAttendanceCycleReport(params?: {
       (l) => l.employee_name === emp.employee_name
     );
     const adj = adjMap.get(emp.employee_name);
+    const payRec = paymentMap.get(emp.employee_name);
 
     if (!emp.is_active && empLogs.length === 0 && !adj) {
       continue;
@@ -1299,6 +1420,9 @@ export async function getAttendanceCycleReport(params?: {
       kasbon_total: kasbonTotal,
       net_take_home_pay: netTakeHomePay,
       notes: adj?.notes || '',
+      is_paid: Boolean(payRec?.is_paid),
+      paid_at: payRec?.paid_at || null,
+      payment_note: payRec?.payment_note || '',
       late_logs: lateLogs,
       anomaly_logs: anomalyLogs,
       all_logs: empLogs,
@@ -1366,6 +1490,26 @@ export async function getAttendanceCycleReport(params?: {
     0
   );
 
+  const paidEmployeesCount = payslips.filter((p) => p.is_paid).length;
+  const unpaidEmployeesCount = payslips.filter((p) => !p.is_paid).length;
+  const totalPaidNetAmount = payslips
+    .filter((p) => p.is_paid)
+    .reduce((s, p) => s + p.net_take_home_pay, 0);
+  const totalUnpaidNetAmount = payslips
+    .filter((p) => !p.is_paid)
+    .reduce((s, p) => s + p.net_take_home_pay, 0);
+  const cyclePaymentStatus: 'paid' | 'partial' | 'unpaid' =
+    payslips.length > 0 && paidEmployeesCount === payslips.length
+      ? 'paid'
+      : paidEmployeesCount > 0
+        ? 'partial'
+        : 'unpaid';
+
+  // Keep selectedCycle in sync with exact payslips count
+  selectedCycle.paid_count = paidEmployeesCount;
+  selectedCycle.active_employee_count = payslips.length;
+  selectedCycle.payment_status = cyclePaymentStatus;
+
   return {
     period_key: periodKey,
     year: selectedCycle.year,
@@ -1393,10 +1537,77 @@ export async function getAttendanceCycleReport(params?: {
       total_bonuses_paid: totalBonusesPaid,
       total_kasbon_deducted: totalKasbonDeducted,
       total_net_take_home: totalNetTakeHome,
+      paid_employees_count: paidEmployeesCount,
+      unpaid_employees_count: unpaidEmployeesCount,
+      total_paid_net_amount: totalPaidNetAmount,
+      total_unpaid_net_amount: totalUnpaidNetAmount,
+      cycle_payment_status: cyclePaymentStatus,
     },
     payslips,
     recent_logs: enrichedLogs,
   };
+}
+
+export async function updatePayrollPaymentStatus(payload: {
+  period_key: string;
+  employee_name?: string;
+  employee_names?: string[];
+  is_paid: boolean;
+  payment_note?: string;
+}): Promise<void> {
+  await ensurePayrollPaymentStatusTable();
+
+  const targets =
+    Array.isArray(payload.employee_names) && payload.employee_names.length > 0
+      ? payload.employee_names
+      : payload.employee_name
+        ? [payload.employee_name]
+        : [];
+
+  if (targets.length === 0) {
+    throw new Error('employee_name or employee_names is required');
+  }
+
+  const paidAtVal = payload.is_paid ? `'${sqlEsc(formatNowWib())}'` : 'NULL';
+  const noteVal = `'${sqlEsc(payload.payment_note || '')}'`;
+
+  const db = await getDuckDB();
+  const conn = await db.connect();
+  try {
+    const valuesSql = targets
+      .map(
+        (empName) => `(
+          '${sqlEsc(payload.period_key)}',
+          '${sqlEsc(empName)}',
+          ${payload.is_paid ? 'TRUE' : 'FALSE'},
+          ${paidAtVal},
+          ${noteVal}
+        )`
+      )
+      .join(',\n');
+
+    await conn.run(`
+      INSERT INTO payroll_payment_status (
+        period_key,
+        employee_name,
+        is_paid,
+        paid_at,
+        payment_note
+      )
+      VALUES ${valuesSql}
+      ON CONFLICT (period_key, employee_name) DO UPDATE SET
+        is_paid = EXCLUDED.is_paid,
+        paid_at = EXCLUDED.paid_at,
+        payment_note = EXCLUDED.payment_note;
+    `);
+    await conn.run(`CHECKPOINT;`);
+  } finally {
+    try {
+      conn.closeSync();
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export async function updateEmployeeAndPayrollAdjustment(payload: {
@@ -1421,7 +1632,10 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
   kasbon_qty?: number;
   kasbon_unit_value?: number;
   notes?: string;
+  is_paid?: boolean;
 }): Promise<void> {
+  await ensurePayrollPaymentStatusTable();
+
   const maxDateRows = await runQuery<{ max_d: string | null }>(
     `SELECT CAST(MAX(work_date) AS VARCHAR) as max_d FROM fact_attendance`
   );
@@ -1554,6 +1768,34 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         kasbon_unit_value = EXCLUDED.kasbon_unit_value,
         notes = EXCLUDED.notes;
     `);
+
+    if (typeof payload.is_paid === 'boolean') {
+      const paidAtVal = payload.is_paid ? `'${sqlEsc(formatNowWib())}'` : 'NULL';
+      await conn.run(`
+        INSERT INTO payroll_payment_status (
+          period_key,
+          employee_name,
+          is_paid,
+          paid_at,
+          payment_note
+        )
+        VALUES (
+          '${sqlEsc(payload.period_key)}',
+          '${sqlEsc(payload.employee_name)}',
+          ${payload.is_paid ? 'TRUE' : 'FALSE'},
+          ${paidAtVal},
+          ''
+        )
+        ON CONFLICT (period_key, employee_name) DO UPDATE SET
+          is_paid = EXCLUDED.is_paid,
+          paid_at = CASE
+            WHEN EXCLUDED.is_paid = TRUE AND payroll_payment_status.is_paid = TRUE AND payroll_payment_status.paid_at IS NOT NULL
+              THEN payroll_payment_status.paid_at
+            ELSE EXCLUDED.paid_at
+          END;
+      `);
+    }
+
     await conn.run(`CHECKPOINT;`);
   } finally {
     try {
