@@ -12,6 +12,7 @@ import {
   ArrowLeft,
   Store,
   Sparkles,
+  CalendarRange,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -159,6 +160,34 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
           </div>
         </div>
       </div>
+
+      {slug === "herbox" && (
+        <div className="cockpit-panel rounded-2xl p-4 sm:p-5 border-emerald-500/35 bg-emerald-500/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 shrink-0">
+              <CalendarRange className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <span>Herbox Personal Catering Program CRM</span>
+                <span className="badge-emerald px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold">
+                  Aug – Nov 2026 Live
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Manage flexible L/D catering subscriptions, Lauk-only routines, 1-click date skips (OFF) with automatic Last Date rollover, and daily kitchen prep sheets.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/catering"
+            className="px-4 py-2 rounded-xl bg-[var(--accent-primary)] hover:opacity-90 text-white text-xs font-semibold inline-flex items-center gap-2 shrink-0 self-start sm:self-center shadow-xs transition-all"
+          >
+            <CalendarRange className="w-4 h-4" />
+            <span>Open Catering CRM</span>
+          </Link>
+        </div>
+      )}
 
       {/* =========================================================================
           Filter Bar

@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTheme } from "./ThemeProvider";
 import { getBrandTheme } from "@/lib/brandTheme";
+import { StaffLoginScreen } from "./StaffLoginScreen";
 import {
   LayoutDashboard,
   Users,
@@ -19,6 +20,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   MapPin,
+  Scale,
+  CalendarRange,
+  Lock,
 } from "lucide-react";
 
 const BRAND_LINKS = [
@@ -52,6 +56,8 @@ function NavigationContent({
   const qs = filterParams.toString() ? `?${filterParams.toString()}` : "";
 
   const isOverview = pathname === "/";
+  const isRecipes = pathname.startsWith("/recipes");
+  const isCatering = pathname.startsWith("/catering");
   const isAttendance = pathname.startsWith("/attendance");
   const isIngest = pathname.startsWith("/ingest");
 
@@ -88,6 +94,60 @@ function NavigationContent({
                     }`}
                   >
                     Live
+                  </span>
+                </div>
+              )}
+            </Link>
+
+            <Link
+              href={`/recipes${qs}`}
+              onClick={onNavigate}
+              title="Recipes, BOM & Ingredient COGS Intelligence"
+              className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                isRecipes
+                  ? "bg-[var(--accent-primary)] text-white shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-3)]"
+              }`}
+            >
+              <Scale className="w-4 h-4 shrink-0" />
+              {!collapsed && (
+                <div className="flex items-center justify-between flex-1 truncate">
+                  <span>Recipes & COGS</span>
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      isRecipes
+                        ? "bg-white/20 text-white"
+                        : "bg-[var(--bg-surface-2)] text-[var(--text-muted)]"
+                    }`}
+                  >
+                    BOM
+                  </span>
+                </div>
+              )}
+            </Link>
+
+            <Link
+              href="/catering"
+              onClick={onNavigate}
+              title="Herbox Personal Catering CRM & Flexible Schedule Matrix"
+              className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                isCatering
+                  ? "bg-[var(--accent-primary)] text-white shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-3)]"
+              }`}
+            >
+              <CalendarRange className="w-4 h-4 shrink-0" />
+              {!collapsed && (
+                <div className="flex items-center justify-between flex-1 truncate">
+                  <span>Herbox Catering</span>
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      isCatering
+                        ? "bg-white/20 text-white"
+                        : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    }`}
+                  >
+                    CRM
                   </span>
                 </div>
               )}
@@ -235,9 +295,71 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean | null>(null);
+
+  const isCustomerPortal = pathname.startsWith("/catering/portal");
+
+  useEffect(() => {
+    if (isCustomerPortal) return;
+
+    // Fast check: check localStorage first
+    const localAuth =
+      typeof window !== "undefined" &&
+      localStorage.getItem("fnb_ops_staff_auth_v1") === "true";
+
+    if (localAuth) {
+      setIsStaffAuthenticated(true);
+    } else {
+      fetch("/api/auth/staff")
+        .then((r) => r.json())
+        .then((d) => {
+          const auth = Boolean(d.authenticated);
+          setIsStaffAuthenticated(auth);
+          if (auth && typeof window !== "undefined") {
+            localStorage.setItem("fnb_ops_staff_auth_v1", "true");
+          }
+        })
+        .catch(() => setIsStaffAuthenticated(false));
+    }
+  }, [pathname, isCustomerPortal]);
+
+  async function handleStaffLogout() {
+    try {
+      await fetch("/api/auth/staff", { method: "DELETE" });
+    } catch {}
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("fnb_ops_staff_auth_v1");
+    }
+    setIsStaffAuthenticated(false);
+  }
+
+  // 1. DEDICATED CUSTOMER PORTAL (Pure standalone layout, Zero Admin Menus)
+  if (isCustomerPortal) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-200">
+        {children}
+      </div>
+    );
+  }
+
+  // 2. LOADING STATE FOR ADMIN OPERATIONS
+  if (isStaffAuthenticated === null) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-canvas)] flex items-center justify-center p-4">
+        <div className="w-8 h-8 rounded-full border-2 border-[var(--accent-primary)] border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  // 3. STAFF PASSCODE LOCK SCREEN FOR ADMIN OPERATIONS
+  if (!isStaffAuthenticated) {
+    return <StaffLoginScreen onSuccess={() => setIsStaffAuthenticated(true)} />;
+  }
 
   const getPageLabel = () => {
     if (pathname === "/") return "Executive Portfolio Command";
+    if (pathname.startsWith("/recipes")) return "Culinary Economics · Recipe & Ingredient COGS Command";
+    if (pathname.startsWith("/catering")) return "Herbox · Personal Catering CRM & Flexible Schedule Engine";
     if (pathname.startsWith("/brands/")) {
       const slug = pathname.replace("/brands/", "");
       const b = getBrandTheme(slug);
@@ -391,6 +513,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span>Dark</span>
               </button>
             </div>
+
+            {/* Staff Terminal Lock / Logout */}
+            <button
+              type="button"
+              onClick={handleStaffLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--bg-surface-2)] hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400 border border-[var(--border-default)] text-xs font-mono font-semibold transition-colors cursor-pointer shadow-2xs"
+              title="Lock Staff Terminal / Logout"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Lock</span>
+            </button>
           </div>
         </header>
 

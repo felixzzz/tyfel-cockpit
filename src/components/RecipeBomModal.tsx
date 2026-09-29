@@ -428,6 +428,17 @@ export function RecipeBomModal({
             )}
             <button
               type="button"
+              onClick={() => {
+                onClose();
+                router.push('/recipes');
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-[var(--accent-primary)] text-white hover:opacity-95 transition-opacity cursor-pointer"
+              title="Open full Master Ingredient Catalog & Line-by-Line Recipe COGS Command Center"
+            >
+              ⚖️ Ingredient &amp; COGS Command
+            </button>
+            <button
+              type="button"
               onClick={handleExportCsv}
               className="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
               title="Download BOM & Packaging COGS Catalog as CSV"
