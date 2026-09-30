@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import {
   getCustomerPortalData,
   updateCateringSlot,
+  updateCustomerPortalProfile,
   type MealSlot,
 } from '@/lib/catering';
 
@@ -36,6 +37,30 @@ export async function POST(
     const { customerId } = await context.params;
     const body = await request.json();
     const action = String(body.action || 'skip');
+
+    if (action === 'update_profile') {
+      const delivery_address = String(body.delivery_address || '');
+      const dietary_notes = String(body.dietary_notes || '');
+      const phone = body.phone ? String(body.phone) : undefined;
+
+      await updateCustomerPortalProfile({
+        customer_id: customerId,
+        delivery_address,
+        dietary_notes,
+        phone,
+      });
+
+      revalidatePath(`/catering/portal/${customerId}`);
+      revalidatePath('/catering');
+
+      const portalData = await getCustomerPortalData(customerId);
+      return NextResponse.json({
+        success: true,
+        action: 'update_profile',
+        portalData,
+      });
+    }
+
     const delivery_date = String(body.delivery_date);
     const meal_slot = String(body.meal_slot) as MealSlot;
 

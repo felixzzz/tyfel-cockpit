@@ -15,10 +15,11 @@ import {
   getDataFreshness,
   QueryFilters,
 } from "@/lib/queries";
+import { getCateringExecutiveSummary } from "@/lib/catering";
 import { FilterBar } from "@/components/FilterBar";
 import { DataFreshnessBar } from "@/components/DataFreshnessBar";
 import { DashboardWorkspace } from "@/components/DashboardWorkspace";
-import { Store, Users, ArrowUpRight } from "lucide-react";
+import { Store, Users, ArrowUpRight, CalendarRange } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     cancellationDiagnostic,
     primeCost,
     freshness,
+    cateringSummary,
   ] = await Promise.all([
     getExecutiveSummary(filters),
     getBrandBreakdown(filters),
@@ -66,6 +68,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     getCanceledOrdersDiagnostic(filters),
     getPrimeCostSummary(filters),
     getDataFreshness(filters),
+    getCateringExecutiveSummary(),
   ]);
 
   // Construct query string for persistent brand navigation
@@ -121,11 +124,19 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         {/* Clean Operational Shortcut */}
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <Link
+            href="/catering"
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-all shadow-xs"
+          >
+            <CalendarRange className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Herbox Catering (MRR Rp 4.8M)</span>
+            <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
+          </Link>
+          <Link
             href="/attendance"
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white transition-all shadow-xs"
           >
             <Users className="w-4 h-4" />
-            <span>Staff & Payslips (16–15)</span>
+            <span>Staff &amp; Payslips (16–15)</span>
             <ArrowUpRight className="w-3.5 h-3.5 opacity-80" />
           </Link>
         </div>
@@ -169,6 +180,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         heroBoms={heroBoms}
         slaDiagnostic={slaDiagnostic}
         cancellationDiagnostic={cancellationDiagnostic}
+        cateringSummary={cateringSummary}
         filterQs={filterQs}
       />
     </main>

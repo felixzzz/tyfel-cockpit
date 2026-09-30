@@ -5,6 +5,8 @@ import {
   updateCateringSlot,
   createOrExtendCateringPackage,
   upsertCateringCustomer,
+  updatePackagePaymentStatus,
+  getCateringExecutiveSummary,
   type MealSlot,
   type CateringProgramCategory,
 } from '@/lib/catering';
@@ -17,8 +19,11 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month') || undefined;
     const date = searchParams.get('date') || undefined;
 
-    const data = await getCateringCrmDashboard({ month, date });
-    return NextResponse.json({ success: true, data });
+    const [data, executive_summary] = await Promise.all([
+      getCateringCrmDashboard({ month, date }),
+      getCateringExecutiveSummary(),
+    ]);
+    return NextResponse.json({ success: true, data, executive_summary });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
@@ -153,6 +158,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         customer_id: result.customer_id,
+        data,
+      });
+    }
+
+    if (type === 'update_payment_status') {
+      if (!body.package_id || !body.payment_status) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'package_id and payment_status are required',
+          },
+          { status: 400 }
+        );
+      }
+
+      await updatePackagePaymentStatus({
+        package_id: String(body.package_id),
+        payment_status: body.payment_status === 'paid' ? 'paid' : 'pending',
+      });
+
+      revalidatePath('/catering');
+      revalidatePath('/brands/herbox');
+
+      const data = await getCateringCrmDashboard({ month, date });
+      return NextResponse.json({
+        success: true,
         data,
       });
     }

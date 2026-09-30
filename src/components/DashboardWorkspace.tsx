@@ -53,6 +53,7 @@ import {
   Users,
   SlidersHorizontal,
 } from "lucide-react";
+import type { CateringExecutiveSummary } from "@/lib/catering-invoice";
 
 interface DashboardWorkspaceProps {
   summary: ExecutiveSummary;
@@ -66,6 +67,7 @@ interface DashboardWorkspaceProps {
   heroBoms: HeroRecipeBomSummary[];
   slaDiagnostic: KitchenSlaDiagnostic;
   cancellationDiagnostic: CanceledOrdersDiagnostic;
+  cateringSummary?: CateringExecutiveSummary | null;
   filterQs: string;
 }
 
@@ -127,6 +129,7 @@ export function DashboardWorkspace({
   heroBoms,
   slaDiagnostic,
   cancellationDiagnostic,
+  cateringSummary,
   filterQs,
 }: DashboardWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
@@ -520,6 +523,73 @@ export function DashboardWorkspace({
               })}
             </div>
           </div>
+
+          {/* Herbox Personal Catering Recurring Subscription Stream Highlight */}
+          {cateringSummary && (
+            <div className="cockpit-panel rounded-2xl p-4 sm:p-5 border-emerald-500/35 bg-gradient-to-r from-emerald-500/10 via-[var(--bg-surface-1)] to-transparent flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-start sm:items-center gap-3.5">
+                <div className="p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/35 text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <CalendarRange className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-bold text-[var(--text-primary)]">
+                      Herbox Personal Catering Program
+                    </span>
+                    <span className="badge-emerald px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold">
+                      Recurring Subscription Stream
+                    </span>
+                    <span className="text-[11px] font-mono text-[var(--text-muted)]">
+                      Aug–Nov 2026 Live
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-[var(--text-secondary)] font-mono">
+                    <span>
+                      Contracted:{" "}
+                      <strong className="text-emerald-600 dark:text-emerald-400 font-bold">
+                        {formatRupiah(cateringSummary.total_revenue_billed)}
+                      </strong>
+                    </span>
+                    <span>
+                      Est. MRR:{" "}
+                      <strong className="text-[var(--text-primary)] font-bold">
+                        {formatRupiah(cateringSummary.estimated_mrr)}/mo
+                      </strong>
+                    </span>
+                    <span>
+                      Boxes:{" "}
+                      <strong className="text-[var(--text-primary)] font-bold">
+                        {cateringSummary.total_boxes_delivered}/{cateringSummary.total_boxes_contracted}
+                      </strong>{" "}
+                      ({cateringSummary.fulfillment_rate_pct}% fulfilled)
+                    </span>
+                    <span>
+                      Active:{" "}
+                      <strong className="text-[var(--text-primary)] font-bold">
+                        {cateringSummary.active_subscribers} subscribers
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 self-start lg:self-center">
+                <Link
+                  href="/catering"
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs transition-all"
+                >
+                  <span>Open Catering CRM</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+                <Link
+                  href={`/brands/herbox${filterQs}`}
+                  className="px-3.5 py-2 rounded-xl bg-[var(--bg-surface-2)] hover:bg-[var(--bg-surface-3)] text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors"
+                >
+                  Herbox Brand
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Track 2: Daily Revenue, Net Realization & Order Velocity Time-Series */}
           {dailyTrend.length > 0 && (

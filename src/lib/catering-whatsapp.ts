@@ -102,3 +102,39 @@ export function generatePortalShareWhatsAppText(cust: EnrichedCateringCustomer, 
   msg += `Simpan link ini di bookmark HP kamu ya Kak! Selamat menikmati. ✨`;
   return msg;
 }
+
+export function generateInvoiceWhatsAppText(
+  custName: string,
+  pkgName: string,
+  totalBoxes: number,
+  pricePerBox: number,
+  invoiceNo: string,
+  paymentStatus: 'paid' | 'pending'
+): string {
+  const totalAmount = totalBoxes * pricePerBox;
+  const totalRp = new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(totalAmount);
+
+  let msg = `Halo Kak ${custName}! 🧾\n\n`;
+  msg += `Terima kasih telah mempercayakan asupan nutrisi sehatmu pada *Herbox Personal Catering*. Berikut invoice resmi paket katering kamu:\n\n`;
+  msg += `📄 *No. Invoice:* ${invoiceNo}\n`;
+  msg += `📦 *Paket:* ${pkgName} (${totalBoxes} Box)\n`;
+  msg += `💰 *Total Tagihan:* *${totalRp}*\n`;
+  msg += `📌 *Status Pembayaran:* ${paymentStatus === 'paid' ? '✅ SUDAH LUNAS' : '⏳ MENUNGGU PEMBAYARAN'}\n\n`;
+
+  if (paymentStatus !== 'paid') {
+    msg += `💳 *Instruksi Pembayaran Resmi Herbox:*\n`;
+    msg += `• *BCA:* 5271-8899-00\n`;
+    msg += `• *a.n:* PT HERBOX PANGAN SEHAT\n`;
+    msg += `(Atau scan QRIS Herbox via BCA / GoPay / OVO / Dana)\n\n`;
+    msg += `Mohon kirimkan bukti transfer ke chat ini ya Kak agar jadwal pengiriman box kamu segera kami prioritaskan. Terima kasih banyak! 🌱🙏`;
+  } else {
+    msg += `Pembayaran telah berhasil diverifikasi oleh tim finance Herbox. Jadwal katering kamu sudah aktif dan terintegrasi di dapur. Selamat menikmati! 🌱✨`;
+  }
+
+  return msg;
+}
+

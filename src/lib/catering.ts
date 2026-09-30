@@ -2154,3 +2154,201 @@ export async function getCustomerPortalData(customerId: string): Promise<Custome
   };
 }
 
+// ============================================================================
+// 3. CUSTOMER PORTAL SELF-SERVICE PROFILE UPDATE
+// ============================================================================
+
+export async function updateCustomerPortalProfile(params: {
+  customer_id: string;
+  delivery_address: string;
+  dietary_notes: string;
+  phone?: string;
+}): Promise<void> {
+  await ensureCateringReady();
+  const db = await getDuckDB();
+  const conn = await db.connect();
+  try {
+    let updateSql = `
+      UPDATE catering_customers
+      SET
+        delivery_address = '${sqlEsc(params.delivery_address.trim())}',
+        dietary_notes = '${sqlEsc(params.dietary_notes.trim())}'
+    `;
+    if (params.phone) {
+      updateSql += `, phone = '${sqlEsc(params.phone.trim())}'`;
+    }
+    updateSql += ` WHERE customer_id = '${sqlEsc(params.customer_id)}';`;
+
+    await conn.run(updateSql);
+    await conn.run(`CHECKPOINT;`);
+    invalidateQueryCache();
+  } finally {
+    try {
+      conn.closeSync();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ============================================================================
+// 4. BILLING, PAYMENT STATUS & INVOICE ENGINE
+// ============================================================================
+
+export * from './catering-invoice';
+
+export async function updatePackagePaymentStatus(params: {
+  package_id: string;
+  payment_status: 'paid' | 'pending';
+}): Promise<void> {
+  await ensureCateringReady();
+  const db = await getDuckDB();
+  const conn = await db.connect();
+  try {
+    await conn.run(`
+      UPDATE catering_packages
+      SET payment_status = '${sqlEsc(params.payment_status)}'
+      WHERE package_id = '${sqlEsc(params.package_id)}';
+    `);
+    await conn.run(`CHECKPOINT;`);
+    invalidateQueryCache();
+  } finally {
+    try {
+      conn.closeSync();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// ============================================================================
+// 5. HERBOX CATERING EXECUTIVE TELEMETRY SUMMARY
+// ============================================================================
+
+export interface CateringExecutiveSummary {
+  total_subscribers: number;
+  active_subscribers: number;
+  total_packages: number;
+  total_revenue_billed: number;
+  total_revenue_paid: number;
+  total_revenue_pending: number;
+  total_boxes_contracted: number;
+  total_boxes_delivered: number;
+  total_boxes_scheduled: number;
+  total_boxes_skipped: number;
+  fulfillment_rate_pct: number;
+  estimated_mrr: number;
+  category_breakdown: {
+    category: CateringProgramCategory;
+    label: string;
+    subscribers: number;
+    boxes: number;
+    revenue: number;
+  }[];
+}
+
+export async function getCateringExecutiveSummary(): Promise<CateringExecutiveSummary> {
+  await ensureCateringReady();
+  const dashboard = await getCateringCrmDashboard({ month: '2026-09' });
+
+  const totalSubscribers = dashboard.customers.length;
+  const activeSubscribers = dashboard.customers.filter((c) => c.status === 'active').length;
+
+  let totalPackages = 0;
+  let totalRevenueBilled = 0;
+  let totalRevenuePaid = 0;
+  let totalRevenuePending = 0;
+  let totalBoxesContracted = 0;
+  let totalBoxesDelivered = 0;
+  let totalBoxesScheduled = 0;
+  let totalBoxesSkipped = 0;
+
+  for (const cust of dashboard.customers) {
+    totalPackages += cust.packages.length;
+    for (const pkg of cust.packages) {
+      const revenue = pkg.total_boxes * pkg.price_per_box;
+      totalRevenueBilled += revenue;
+      if (pkg.payment_status === 'paid') {
+        totalRevenuePaid += revenue;
+      } else {
+        totalRevenuePending += revenue;
+      }
+      totalBoxesContracted += pkg.total_boxes;
+      totalBoxesDelivered += pkg.boxes_delivered;
+      totalBoxesScheduled += pkg.boxes_scheduled;
+      totalBoxesSkipped += pkg.skipped_slots_count;
+    }
+  }
+
+  const fulfillmentRate = totalBoxesContracted > 0
+    ? Math.round((totalBoxesDelivered / totalBoxesContracted) * 100)
+    : 0;
+
+  let activeMrr = 0;
+  for (const cust of dashboard.customers) {
+    if (cust.status === 'active' && cust.active_package) {
+      const pkg = cust.active_package;
+      const pkgRev = pkg.total_boxes * pkg.price_per_box;
+      const durationWeeks = Math.max(1, pkg.total_boxes / (cust.category === 'LUNCH_DINNER' ? 10 : 5));
+      const monthlyRate = (pkgRev / durationWeeks) * 4.3;
+      activeMrr += Math.round(monthlyRate);
+    }
+  }
+
+  const catMap: Record<CateringProgramCategory, { subscribers: number; boxes: number; revenue: number }> = {
+    LUNCH_DINNER: { subscribers: 0, boxes: 0, revenue: 0 },
+    LAUK: { subscribers: 0, boxes: 0, revenue: 0 },
+    LUNCH_OR_DINNER: { subscribers: 0, boxes: 0, revenue: 0 },
+  };
+
+  for (const cust of dashboard.customers) {
+    const entry = catMap[cust.category] || { subscribers: 0, boxes: 0, revenue: 0 };
+    entry.subscribers += 1;
+    for (const pkg of cust.packages) {
+      entry.boxes += pkg.total_boxes;
+      entry.revenue += pkg.total_boxes * pkg.price_per_box;
+    }
+  }
+
+  const categoryBreakdown = [
+    {
+      category: 'LUNCH_DINNER' as CateringProgramCategory,
+      label: '2x Meals Daily (Lunch + Dinner)',
+      subscribers: catMap.LUNCH_DINNER.subscribers,
+      boxes: catMap.LUNCH_DINNER.boxes,
+      revenue: catMap.LUNCH_DINNER.revenue,
+    },
+    {
+      category: 'LAUK' as CateringProgramCategory,
+      label: 'Lauk Only (Protein & Sayur)',
+      subscribers: catMap.LAUK.subscribers,
+      boxes: catMap.LAUK.boxes,
+      revenue: catMap.LAUK.revenue,
+    },
+    {
+      category: 'LUNCH_OR_DINNER' as CateringProgramCategory,
+      label: 'Flexible Lunch / Dinner (1 Box/Day)',
+      subscribers: catMap.LUNCH_OR_DINNER.subscribers,
+      boxes: catMap.LUNCH_OR_DINNER.boxes,
+      revenue: catMap.LUNCH_OR_DINNER.revenue,
+    },
+  ];
+
+  return {
+    total_subscribers: totalSubscribers,
+    active_subscribers: activeSubscribers,
+    total_packages: totalPackages,
+    total_revenue_billed: totalRevenueBilled,
+    total_revenue_paid: totalRevenuePaid,
+    total_revenue_pending: totalRevenuePending,
+    total_boxes_contracted: totalBoxesContracted,
+    total_boxes_delivered: totalBoxesDelivered,
+    total_boxes_scheduled: totalBoxesScheduled,
+    total_boxes_skipped: totalBoxesSkipped,
+    fulfillment_rate_pct: fulfillmentRate,
+    estimated_mrr: activeMrr,
+    category_breakdown: categoryBreakdown,
+  };
+}
+
+

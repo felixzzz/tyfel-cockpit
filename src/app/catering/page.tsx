@@ -9,13 +9,17 @@ import type {
   MealSlot,
   CateringProgramCategory,
   DailyDispatchItem,
+  EnrichedCateringPackage,
 } from "@/lib/catering";
+import type { CateringInvoiceData } from "@/lib/catering-invoice";
+import { generateInvoiceForPackage } from "@/lib/catering-invoice";
 import {
   buildWhatsAppLink,
   generateDispatchWhatsAppText,
   generateRenewalWhatsAppText,
   generatePortalShareWhatsAppText,
   generateSkipConfirmationWhatsAppText,
+  generateInvoiceWhatsAppText,
 } from "@/lib/catering-whatsapp";
 import {
   Calendar,
@@ -49,6 +53,10 @@ import {
   Copy,
   Send,
   Smartphone,
+  Printer,
+  Download,
+  Receipt,
+  FileText,
 } from "lucide-react";
 
 function formatRp(amount: number): string {
@@ -232,6 +240,134 @@ export default function HerboxCateringCrmPage() {
       }, 2500);
     } catch (e) {
       console.error("Clipboard copy failed", e);
+    }
+  }
+
+  // Dispatch Manifest Print & Export State
+  const [printManifestModalOpen, setPrintManifestModalOpen] = useState<boolean>(false);
+  const [printSlotFilter, setPrintSlotFilter] = useState<"ALL" | "L" | "D">("ALL");
+
+  function handleExportManifestCsv() {
+    if (!data?.daily_manifest) return;
+    const manifest = data.daily_manifest;
+    const rows: string[][] = [
+      [
+        "Date",
+        "Slot",
+        "Customer Name",
+        "Phone",
+        "Delivery Address",
+        "Plan Category",
+        "Package Name",
+        "Box Qty",
+        "Dietary / Menu Notes",
+        "Remaining Boxes",
+        "Status",
+      ],
+    ];
+
+    for (const item of manifest.lunch_items) {
+      rows.push([
+        selectedDate,
+        "Lunch (L)",
+        `"${item.customer_name.replace(/"/g, '""')}"`,
+        `"${item.phone}"`,
+        `"${(item.delivery_address || "").replace(/"/g, '""')}"`,
+        item.category === "LAUK" ? "Lauk Only" : "Ricebox",
+        `"${item.package_name}"`,
+        String(item.box_qty),
+        `"${(item.menu_note || "").replace(/"/g, '""')}"`,
+        String(item.boxes_left_to_deliver),
+        item.status,
+      ]);
+    }
+
+    for (const item of manifest.dinner_items) {
+      rows.push([
+        selectedDate,
+        "Dinner (D)",
+        `"${item.customer_name.replace(/"/g, '""')}"`,
+        `"${item.phone}"`,
+        `"${(item.delivery_address || "").replace(/"/g, '""')}"`,
+        item.category === "LAUK" ? "Lauk Only" : "Ricebox",
+        `"${item.package_name}"`,
+        String(item.box_qty),
+        `"${(item.menu_note || "").replace(/"/g, '""')}"`,
+        String(item.boxes_left_to_deliver),
+        item.status,
+      ]);
+    }
+
+    const csvContent = rows.map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `herbox-dispatch-manifest-${selectedDate}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setBannerNotice(`Exported Courier Dispatch CSV for ${formatShortDate(selectedDate)}`);
+    setTimeout(() => setBannerNotice(null), 3500);
+  }
+
+  // Digital Invoice Modal State
+  const [invoiceModal, setInvoiceModal] = useState<{
+    isOpen: boolean;
+    data: CateringInvoiceData | null;
+    cust: EnrichedCateringCustomer | null;
+    pkg: EnrichedCateringPackage | null;
+  }>({
+    isOpen: false,
+    data: null,
+    cust: null,
+    pkg: null,
+  });
+
+  function handleOpenInvoice(cust: EnrichedCateringCustomer, pkg: EnrichedCateringPackage) {
+    const invData = generateInvoiceForPackage(cust, pkg);
+    setInvoiceModal({
+      isOpen: true,
+      data: invData,
+      cust,
+      pkg,
+    });
+  }
+
+  async function handleTogglePaymentStatus(packageId: string, currentStatus: string) {
+    const nextStatus = currentStatus === "paid" ? "pending" : "paid";
+    setMutating(true);
+    try {
+      const res = await fetch("/api/catering", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "update_payment_status",
+          package_id: packageId,
+          payment_status: nextStatus,
+          month: selectedMonth,
+          date: selectedDate,
+        }),
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        setData(json.data);
+        if (invoiceModal.isOpen && invoiceModal.data?.package_id === packageId) {
+          setInvoiceModal((prev) =>
+            prev.data
+              ? {
+                  ...prev,
+                  data: { ...prev.data, payment_status: nextStatus as "paid" | "pending" },
+                }
+              : prev
+          );
+        }
+        setBannerNotice(`Updated payment status to ${nextStatus.toUpperCase()}`);
+        setTimeout(() => setBannerNotice(null), 3000);
+      }
+    } finally {
+      setMutating(false);
     }
   }
 
@@ -1567,6 +1703,28 @@ export default function HerboxCateringCrmPage() {
               >
                 Tomorrow (30 Sep)
               </button>
+
+              <div className="h-5 w-[1px] bg-[var(--border-default)] mx-1" />
+
+              <button
+                type="button"
+                onClick={() => setPrintManifestModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-[var(--bg-surface-2)] hover:bg-[var(--bg-surface-3)] border border-[var(--border-default)] text-xs font-semibold text-[var(--text-primary)] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Print Kitchen & Courier Dispatch Manifest"
+              >
+                <Printer className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Print Manifest</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportManifestCsv}
+                className="px-3 py-1.5 rounded-xl bg-[var(--bg-surface-2)] hover:bg-[var(--bg-surface-3)] border border-[var(--border-default)] text-xs font-semibold text-[var(--text-primary)] inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title="Download Courier Dispatch CSV"
+              >
+                <Download className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Export CSV</span>
+              </button>
             </div>
           </div>
 
@@ -2000,7 +2158,7 @@ export default function HerboxCateringCrmPage() {
                     {cust.packages.map((pkg) => (
                       <div
                         key={pkg.package_id}
-                        className={`p-2.5 rounded-xl border text-xs ${
+                        className={`p-2.5 rounded-xl border text-xs space-y-2 ${
                           pkg.status === "active"
                             ? "bg-emerald-500/5 border-emerald-500/30"
                             : "bg-[var(--bg-surface-2)] border-[var(--border-subtle)] opacity-80"
@@ -2013,7 +2171,7 @@ export default function HerboxCateringCrmPage() {
                             sched / {pkg.total_boxes} box
                           </span>
                         </div>
-                        <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-muted)] mt-1">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-muted)]">
                           <span>
                             Start: {formatShortDate(pkg.start_date)} → Last:{" "}
                             {formatShortDate(pkg.effective_last_date)}
@@ -2029,6 +2187,46 @@ export default function HerboxCateringCrmPage() {
                               ? `Sisa ${pkg.boxes_left_to_deliver} box`
                               : "Completed"}
                           </span>
+                        </div>
+
+                        {/* Payment Status & Invoice Button */}
+                        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[var(--border-subtle)]/70 text-[10px]">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleTogglePaymentStatus(
+                                pkg.package_id,
+                                pkg.payment_status || "paid"
+                              )
+                            }
+                            title="Click to toggle Paid / Pending"
+                            className={`px-2 py-0.5 rounded-md font-mono font-bold cursor-pointer inline-flex items-center gap-1 transition-all ${
+                              pkg.payment_status === "pending"
+                                ? "bg-amber-500/15 hover:bg-amber-500/25 text-amber-600 dark:text-amber-400 border border-amber-500/30"
+                                : "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                            }`}
+                          >
+                            {pkg.payment_status === "pending" ? (
+                              <>
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                <span>UNPAID / PENDING</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-2.5 h-2.5" />
+                                <span>PAID</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenInvoice(cust, pkg)}
+                            className="px-2 py-0.5 rounded-md bg-[var(--bg-surface-3)] hover:bg-[var(--accent-primary)] hover:text-white text-[var(--text-secondary)] font-medium inline-flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <Receipt className="w-2.5 h-2.5" />
+                            <span>Invoice</span>
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -2830,6 +3028,568 @@ export default function HerboxCateringCrmPage() {
                 >
                   <Send className="w-4 h-4" />
                   <span>Open WhatsApp</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Printable Dispatch Manifest & Courier Slips Modal */}
+      {printManifestModalOpen && data?.daily_manifest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs overflow-y-auto">
+          <style jsx global>{`
+            @media print {
+              body * {
+                visibility: hidden;
+              }
+              #printable-manifest-area,
+              #printable-manifest-area * {
+                visibility: visible;
+              }
+              #printable-manifest-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 16px;
+                background: white !important;
+                color: black !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+            }
+          `}</style>
+          <div className="bg-[var(--bg-surface-1)] border border-[var(--border-default)] rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between gap-3 bg-[var(--bg-surface-2)] no-print">
+              <div>
+                <h3 className="text-base font-bold text-[var(--text-primary)] flex items-center gap-2">
+                  <Printer className="w-5 h-5 text-[var(--accent-primary)]" />
+                  <span>Dispatch Manifest & Kitchen Slips</span>
+                </h3>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  Herbox Personal Catering — Date:{" "}
+                  <strong className="text-[var(--text-primary)]">
+                    {formatShortDate(selectedDate)}
+                  </strong>
+                </p>
+              </div>
+
+              {/* Slot Filter & Print Trigger */}
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-xl bg-[var(--bg-surface-3)] p-1 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setPrintSlotFilter("ALL")}
+                    className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
+                      printSlotFilter === "ALL"
+                        ? "bg-[var(--bg-surface-1)] text-[var(--text-primary)] shadow-xs"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    All Slots
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintSlotFilter("L")}
+                    className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
+                      printSlotFilter === "L"
+                        ? "bg-amber-500 text-white shadow-xs"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    Lunch (L)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPrintSlotFilter("D")}
+                    className={`px-3 py-1 rounded-lg cursor-pointer transition-colors ${
+                      printSlotFilter === "D"
+                        ? "bg-indigo-600 text-white shadow-xs"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    Dinner (D)
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-1.5 rounded-xl bg-[var(--accent-primary)] hover:opacity-90 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print Sheet</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPrintManifestModalOpen(false)}
+                  className="p-1.5 rounded-xl hover:bg-[var(--bg-surface-3)] text-[var(--text-secondary)] cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Area */}
+            <div id="printable-manifest-area" className="p-6 overflow-y-auto space-y-5">
+              {/* Manifest Overview Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl border border-gray-200 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900/40 text-xs">
+                <div>
+                  <div className="font-bold text-sm tracking-wide uppercase text-gray-900 dark:text-gray-100">
+                    HERBOX CATERING DISPATCH MANIFEST
+                  </div>
+                  <div className="text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+                    Delivery Date: {selectedDate} · Generated:{" "}
+                    {new Date().toLocaleTimeString("id-ID", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-mono">
+                  <div className="text-center px-3 py-1.5 rounded-lg border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                    <span className="text-gray-400 block text-[10px] uppercase">
+                      Total Deliveries
+                    </span>
+                    <strong className="text-sm font-bold text-gray-900 dark:text-white">
+                      {(printSlotFilter === "ALL" || printSlotFilter === "L"
+                        ? data.daily_manifest.lunch_items.length
+                        : 0) +
+                        (printSlotFilter === "ALL" || printSlotFilter === "D"
+                          ? data.daily_manifest.dinner_items.length
+                          : 0)}
+                    </strong>
+                  </div>
+                  <div className="text-center px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300">
+                    <span className="block text-[10px] uppercase">Lunch (L)</span>
+                    <strong className="text-sm font-bold">
+                      {data.daily_manifest.lunch_items.reduce(
+                        (acc, i) => acc + i.box_qty,
+                        0
+                      )}{" "}
+                      box
+                    </strong>
+                  </div>
+                  <div className="text-center px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300">
+                    <span className="block text-[10px] uppercase">Dinner (D)</span>
+                    <strong className="text-sm font-bold">
+                      {data.daily_manifest.dinner_items.reduce(
+                        (acc, i) => acc + i.box_qty,
+                        0
+                      )}{" "}
+                      box
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Slips Grid (2-column layout for paper-efficient printing) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(printSlotFilter === "ALL" || printSlotFilter === "L"
+                  ? data.daily_manifest.lunch_items
+                  : []
+                ).map((item, idx) => (
+                  <div
+                    key={`print-l-${item.customer_id}-${idx}`}
+                    className="p-4 rounded-xl border border-gray-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-gray-900 dark:text-gray-100 space-y-2.5 shadow-xs break-inside-avoid"
+                  >
+                    <div className="flex items-center justify-between border-b pb-2 border-gray-200 dark:border-neutral-800">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white font-mono text-[10px] font-bold">
+                          LUNCH (L)
+                        </span>
+                        <span className="font-bold text-sm tracking-tight">
+                          {item.customer_name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono font-semibold text-gray-600 dark:text-gray-300">
+                        {item.phone}
+                      </span>
+                    </div>
+
+                    <div className="text-xs space-y-1">
+                      <div className="flex items-start gap-1.5 text-gray-700 dark:text-gray-300">
+                        <MapPin className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5" />
+                        <span className="font-medium leading-snug">
+                          {item.delivery_address || "Alamat belum tercatat"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] pt-1 font-mono text-gray-500">
+                        <span>
+                          Package: <strong>{item.package_name}</strong>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-sm bg-gray-100 dark:bg-neutral-800 font-bold text-gray-900 dark:text-white">
+                          QTY: {item.box_qty} Box
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Dietary / Menu Special Notes */}
+                    {(item.dietary_notes || item.menu_note) && (
+                      <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-tight font-medium">
+                        <strong>⚠️ NOTES:</strong>{" "}
+                        {item.dietary_notes || item.menu_note}
+                      </div>
+                    )}
+
+                    {/* Courier Receipt Check Line */}
+                    <div className="pt-2 border-t border-dashed border-gray-200 dark:border-neutral-800 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+                      <span>Sisa: {item.boxes_left_to_deliver} box</span>
+                      <span>[ ] Driver: ____________ Jam: _______</span>
+                    </div>
+                  </div>
+                ))}
+
+                {(printSlotFilter === "ALL" || printSlotFilter === "D"
+                  ? data.daily_manifest.dinner_items
+                  : []
+                ).map((item, idx) => (
+                  <div
+                    key={`print-d-${item.customer_id}-${idx}`}
+                    className="p-4 rounded-xl border border-gray-300 dark:border-neutral-800 bg-white dark:bg-neutral-900 text-gray-900 dark:text-gray-100 space-y-2.5 shadow-xs break-inside-avoid"
+                  >
+                    <div className="flex items-center justify-between border-b pb-2 border-gray-200 dark:border-neutral-800">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white font-mono text-[10px] font-bold">
+                          DINNER (D)
+                        </span>
+                        <span className="font-bold text-sm tracking-tight">
+                          {item.customer_name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono font-semibold text-gray-600 dark:text-gray-300">
+                        {item.phone}
+                      </span>
+                    </div>
+
+                    <div className="text-xs space-y-1">
+                      <div className="flex items-start gap-1.5 text-gray-700 dark:text-gray-300">
+                        <MapPin className="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5" />
+                        <span className="font-medium leading-snug">
+                          {item.delivery_address || "Alamat belum tercatat"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] pt-1 font-mono text-gray-500">
+                        <span>
+                          Package: <strong>{item.package_name}</strong>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-sm bg-gray-100 dark:bg-neutral-800 font-bold text-gray-900 dark:text-white">
+                          QTY: {item.box_qty} Box
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Dietary / Menu Special Notes */}
+                    {(item.dietary_notes || item.menu_note) && (
+                      <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] leading-tight font-medium">
+                        <strong>⚠️ NOTES:</strong>{" "}
+                        {item.dietary_notes || item.menu_note}
+                      </div>
+                    )}
+
+                    {/* Courier Receipt Check Line */}
+                    <div className="pt-2 border-t border-dashed border-gray-200 dark:border-neutral-800 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+                      <span>Sisa: {item.boxes_left_to_deliver} box</span>
+                      <span>[ ] Driver: ____________ Jam: _______</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Digital Catering Invoice Modal */}
+      {invoiceModal.isOpen && invoiceModal.data && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs overflow-y-auto">
+          <style jsx global>{`
+            @media print {
+              body * {
+                visibility: hidden;
+              }
+              #printable-invoice-area,
+              #printable-invoice-area * {
+                visibility: visible;
+              }
+              #printable-invoice-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                margin: 0;
+                padding: 24px;
+                background: white !important;
+                color: black !important;
+              }
+              .no-print {
+                display: none !important;
+              }
+            }
+          `}</style>
+          <div className="bg-[var(--bg-surface-1)] border border-[var(--border-default)] rounded-2xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden my-auto">
+            {/* Modal Bar */}
+            <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-2)] no-print">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-[var(--accent-primary)]" />
+                <span className="font-bold text-sm text-[var(--text-primary)]">
+                  Digital Invoice — {invoiceModal.data.invoice_number}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setInvoiceModal({
+                    isOpen: false,
+                    data: null,
+                    cust: null,
+                    pkg: null,
+                  })
+                }
+                className="p-1.5 rounded-xl hover:bg-[var(--bg-surface-3)] text-[var(--text-secondary)] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Printable Invoice Sheet */}
+            <div
+              id="printable-invoice-area"
+              className="p-8 overflow-y-auto space-y-6 bg-white dark:bg-neutral-950 text-gray-900 dark:text-gray-100"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between border-b pb-6 border-gray-200 dark:border-neutral-800">
+                <div>
+                  <div className="text-xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400">
+                    HERBOX
+                  </div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-widest mt-0.5">
+                    Healthy & Nutritious Personal Catering
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    PT Herbox Pangan Sehat / Maus Group · Jakarta, Indonesia
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-lg font-black tracking-wider uppercase text-gray-900 dark:text-white">
+                    INVOICE
+                  </div>
+                  <div className="text-xs font-mono font-bold text-gray-600 dark:text-gray-400 mt-0.5">
+                    {invoiceModal.data.invoice_number}
+                  </div>
+                  <div className="mt-2">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold inline-flex items-center gap-1 ${
+                        invoiceModal.data.payment_status === "paid"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300"
+                      }`}
+                    >
+                      {invoiceModal.data.payment_status === "paid" ? (
+                        <>
+                          <Check className="w-3 h-3" />
+                          <span>LUNAS / PAID</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>BELUM LUNAS / PENDING</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bill To & Metadata */}
+              <div className="grid grid-cols-2 gap-6 text-xs">
+                <div>
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-gray-400 font-bold mb-1">
+                    Billed To:
+                  </div>
+                  <div className="font-bold text-sm text-gray-900 dark:text-white">
+                    {invoiceModal.data.customer_name}
+                  </div>
+                  <div className="text-gray-600 dark:text-gray-400 font-mono mt-0.5">
+                    {invoiceModal.data.phone}
+                  </div>
+                  <div className="text-gray-600 dark:text-gray-400 mt-1 leading-snug">
+                    {invoiceModal.data.delivery_address}
+                  </div>
+                </div>
+
+                <div className="text-right space-y-1 font-mono text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Invoice Date:</span>
+                    <strong className="text-gray-800 dark:text-gray-200">
+                      {invoiceModal.data.issue_date}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Due Date:</span>
+                    <strong className="text-gray-800 dark:text-gray-200">
+                      {invoiceModal.data.due_date}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Plan Category:</span>
+                    <strong className="text-gray-800 dark:text-gray-200">
+                      {invoiceModal.data.category_label}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <div className="rounded-xl border border-gray-200 dark:border-neutral-800 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 dark:bg-neutral-900 border-b border-gray-200 dark:border-neutral-800 text-[10px] font-mono uppercase text-gray-500">
+                    <tr>
+                      <th className="py-2.5 px-4 text-left">Subscription Item</th>
+                      <th className="py-2.5 px-4 text-center">Boxes</th>
+                      <th className="py-2.5 px-4 text-right">Price / Box</th>
+                      <th className="py-2.5 px-4 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-neutral-900">
+                    <tr>
+                      <td className="py-3 px-4 font-semibold text-gray-900 dark:text-white">
+                        {invoiceModal.data.package_name}
+                        <span className="block text-[11px] font-normal text-gray-500">
+                          Herbox Personal Catering Program ({invoiceModal.data.total_boxes} Deliveries)
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center font-mono">
+                        {invoiceModal.data.total_boxes}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono">
+                        {formatRp(invoiceModal.data.price_per_box)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-gray-900 dark:text-white">
+                        {formatRp(invoiceModal.data.total_amount)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Total & Bank Details */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                <div className="p-4 rounded-xl border border-gray-200 dark:border-neutral-800 bg-gray-50 dark:bg-neutral-900/50 space-y-1.5 text-xs">
+                  <div className="font-bold text-[11px] uppercase tracking-wider text-gray-500 font-mono">
+                    Payment Instructions:
+                  </div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {invoiceModal.data.bank_details.bank_name}
+                  </div>
+                  <div className="text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                    {invoiceModal.data.bank_details.account_number}
+                  </div>
+                  <div className="text-[11px] text-gray-500">
+                    a.n. {invoiceModal.data.bank_details.account_holder}
+                  </div>
+                  <div className="text-[10px] text-gray-400 pt-1 border-t border-gray-200 dark:border-neutral-800">
+                    Berita Transfer: <strong>{invoiceModal.data.invoice_number}</strong>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-xs font-mono self-end">
+                  <div className="flex justify-between text-gray-500">
+                    <span>Subtotal ({invoiceModal.data.total_boxes} boxes):</span>
+                    <span>{formatRp(invoiceModal.data.subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500">
+                    <span>Discount:</span>
+                    <span>Rp 0</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm font-bold pt-2 border-t border-gray-200 dark:border-neutral-800 text-gray-900 dark:text-white">
+                    <span>TOTAL CONTRACT:</span>
+                    <span className="text-base text-emerald-600 dark:text-emerald-400">
+                      {formatRp(invoiceModal.data.total_amount)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-2)] flex flex-wrap items-center justify-between gap-3 no-print">
+              <button
+                type="button"
+                onClick={() =>
+                  handleTogglePaymentStatus(
+                    invoiceModal.data!.package_id,
+                    invoiceModal.data!.payment_status
+                  )
+                }
+                disabled={mutating}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                  invoiceModal.data.payment_status === "paid"
+                    ? "bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                    : "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                }`}
+              >
+                {invoiceModal.data.payment_status === "paid" ? (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Mark as Pending (Unpaid)</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Mark as LUNAS (Paid)</span>
+                  </>
+                )}
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const waText = generateInvoiceWhatsAppText(
+                      invoiceModal.data!.customer_name,
+                      invoiceModal.data!.package_name,
+                      invoiceModal.data!.total_boxes,
+                      invoiceModal.data!.price_per_box,
+                      invoiceModal.data!.invoice_number,
+                      invoiceModal.data!.payment_status
+                    );
+                    const url = buildWhatsAppLink(invoiceModal.data!.phone, waText);
+                    window.open(url, "_blank");
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send via WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-2 rounded-xl bg-[var(--bg-surface-3)] hover:bg-[var(--accent-primary)] hover:text-white text-xs font-semibold text-[var(--text-primary)] inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print / PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setInvoiceModal({
+                      isOpen: false,
+                      data: null,
+                      cust: null,
+                      pkg: null,
+                    })
+                  }
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  Close
                 </button>
               </div>
             </div>

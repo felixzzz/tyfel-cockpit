@@ -14,6 +14,9 @@ import {
   Phone,
   AlertCircle,
   ChevronRight,
+  Edit3,
+  Save,
+  X,
 } from "lucide-react";
 
 function formatShortDate(dateStr: string): string {
@@ -68,6 +71,48 @@ export default function CustomerSelfServicePortal() {
     date: string;
     slot: MealSlot;
   } | null>(null);
+
+  // Edit Profile (Address & Dietary Notes) State
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [profileAddress, setProfileAddress] = useState("");
+  const [profileDietary, setProfileDietary] = useState("");
+  const [profilePhone, setProfilePhone] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  function openEditProfile() {
+    if (!data) return;
+    setProfileAddress(data.customer.delivery_address || "");
+    setProfileDietary(data.customer.dietary_notes || "");
+    setProfilePhone(data.customer.phone || "");
+    setEditProfileOpen(true);
+  }
+
+  async function handleProfileSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!customerId) return;
+    setSavingProfile(true);
+    try {
+      const res = await fetch(`/api/catering/portal/${customerId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_profile",
+          delivery_address: profileAddress,
+          dietary_notes: profileDietary,
+          phone: profilePhone,
+        }),
+      });
+      const json = await res.json();
+      if (json.success && json.portalData) {
+        setData(json.portalData);
+        setEditProfileOpen(false);
+        setActionNotice("Alamat pengiriman dan catatan menu berhasil diperbarui!");
+        setTimeout(() => setActionNotice(null), 5000);
+      }
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   async function fetchPortalData() {
     setLoading(true);
@@ -257,14 +302,29 @@ export default function CustomerSelfServicePortal() {
           </div>
 
           {/* Delivery Address & Dietary Notes */}
-          <div className="pt-3 border-t border-[var(--border-subtle)] space-y-1.5 text-xs text-[var(--text-secondary)]">
-            <div className="flex items-start gap-2">
-              <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-              <span>{customer.delivery_address || "Alamat belum tercatat"}</span>
+          <div className="pt-3 border-t border-[var(--border-subtle)] space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+                Info Pengiriman & Pantangan Menu
+              </span>
+              <button
+                type="button"
+                onClick={openEditProfile}
+                className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>Ubah</span>
+              </button>
             </div>
-            <div className="flex items-start gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-              <span>{customer.dietary_notes}</span>
+            <div className="space-y-1.5 text-[var(--text-secondary)]">
+              <div className="flex items-start gap-2">
+                <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                <span>{customer.delivery_address || "Alamat belum tercatat"}</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <span>{customer.dietary_notes || "Tidak ada catatan khusus / alergi"}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -468,6 +528,103 @@ export default function CustomerSelfServicePortal() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Edit Profile Modal */}
+        {editProfileOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <form
+              onSubmit={handleProfileSave}
+              className="cockpit-panel rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl border border-[var(--border-strong)]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    <Edit3 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-[var(--text-primary)] font-display">
+                      Ubah Info Pengiriman & Catatan
+                    </h3>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      Perubahan otomatis terhubung langsung ke dapur & kurir
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditProfileOpen(false)}
+                  className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-mono uppercase text-[var(--text-secondary)] font-semibold">
+                    Alamat Pengiriman Lengkap
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={profileAddress}
+                    onChange={(e) => setProfileAddress(e.target.value)}
+                    placeholder="Contoh: Jl. Greenville Blok AY No. 12, Jakarta Barat (titip di security)"
+                    required
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-emerald-500 leading-relaxed resize-none"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-mono uppercase text-[var(--text-secondary)] font-semibold">
+                    Catatan Pantangan Menu / Alergi
+                  </label>
+                  <input
+                    type="text"
+                    value={profileDietary}
+                    onChange={(e) => setProfileDietary(e.target.value)}
+                    placeholder="Contoh: Tanpa pedas, saus dressing dipisah, alergi seafood"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-mono uppercase text-[var(--text-secondary)] font-semibold">
+                    Nomor WhatsApp Penerima
+                  </label>
+                  <input
+                    type="tel"
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value)}
+                    placeholder="0812-xxxx-xxxx"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-xs text-[var(--text-primary)] font-mono focus:outline-hidden focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-800 dark:text-amber-200">
+                ⚠️ <strong>Catatan:</strong> Perubahan alamat berlaku efektif untuk pengiriman berikutnya sesuai jam cutoff dapur (10:30 WIB Siang / 15:30 WIB Malam).
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
+                <button
+                  type="button"
+                  onClick={() => setEditProfileOpen(false)}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-[var(--text-secondary)] bg-[var(--bg-surface-2)] cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{savingProfile ? "Menyimpan..." : "Simpan Perubahan"}</span>
+                </button>
+              </div>
+            </form>
           </div>
         )}
       </div>
