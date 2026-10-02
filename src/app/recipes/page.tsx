@@ -503,7 +503,7 @@ export default function RecipesCogsCommandPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `maus-recipes-cogs-${brandFilter === 'all' ? 'portfolio' : brandFilter.toLowerCase().replace(/\s+/g, '-')}.csv`;
+    a.download = `tyfel-recipes-cogs-${brandFilter === 'all' ? 'portfolio' : brandFilter.toLowerCase().replace(/\s+/g, '-')}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };

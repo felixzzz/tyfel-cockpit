@@ -3371,7 +3371,7 @@ export default function HerboxCateringCrmPage() {
                     Healthy & Nutritious Personal Catering
                   </div>
                   <div className="text-[11px] text-gray-500 mt-1">
-                    PT Herbox Pangan Sehat / Maus Group · Jakarta, Indonesia
+                    PT Herbox Pangan Sehat / Tyfel Hub · Jakarta, Indonesia
                   </div>
                 </div>
 

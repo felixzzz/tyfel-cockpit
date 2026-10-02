@@ -19,7 +19,6 @@ import {
   Receipt,
   TrendingUp,
   CheckCircle2,
-  AlertTriangle,
   ArrowUpRight,
 } from "lucide-react";
 
@@ -46,9 +45,11 @@ interface PageProps {
 export default async function BrandDetailPage({ params, searchParams }: PageProps) {
   const { brandId } = await params;
   const resolvedSearchParams = await searchParams;
+  const defaultRange = resolvedSearchParams?.from || resolvedSearchParams?.to ? undefined : "7d";
+  const selectedRange = resolvedSearchParams?.range ?? defaultRange;
   const filters: QueryFilters = {
     branch: resolvedSearchParams?.branch,
-    range: resolvedSearchParams?.range,
+    range: selectedRange,
     from: resolvedSearchParams?.from,
     to: resolvedSearchParams?.to,
   };
@@ -61,7 +62,7 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
   // Preserve query string for brand switching and back navigation
   const queryParams = new URLSearchParams();
   if (filters.branch && filters.branch !== "all") queryParams.set("branch", filters.branch);
-  if (filters.range && filters.range !== "all") queryParams.set("range", filters.range);
+  if (filters.range && filters.range !== "7d") queryParams.set("range", filters.range);
   if (filters.from) queryParams.set("from", filters.from);
   if (filters.to) queryParams.set("to", filters.to);
   const filterQs = queryParams.toString() ? "?" + queryParams.toString() : "";
@@ -326,7 +327,7 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
       <Suspense fallback={<div className="h-16 cockpit-panel rounded-2xl animate-pulse" />}>
         <FilterBar
           initialBranch={filters.branch || "all"}
-          initialRange={filters.range || "all"}
+          initialRange={filters.range || "7d"}
           initialFrom={filters.from || ""}
           initialTo={filters.to || ""}
         />
@@ -338,14 +339,21 @@ export default async function BrandDetailPage({ params, searchParams }: PageProp
             No Orders Recorded For Selected Filter
           </p>
           <p className="text-xs text-[var(--text-secondary)]">
-            {brandName} did not record any completed orders matching outlet &quot;{filters.branch || "All"}&quot; and period &quot;{filters.range || "All"}&quot;.
+            {brandName} did not record any completed orders matching outlet &quot;{filters.branch || "All"}&quot; and period &quot;{filters.range || "7d"}&quot;.
           </p>
-          <div className="pt-2">
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
             <Link
-              href={"/brands/" + slug}
+              href={"/brands/" + slug + "?range=all"}
               className="text-xs font-mono text-[var(--accent-primary)] hover:underline font-semibold"
             >
-              Reset to All Time / All Branches
+              View All Time
+            </Link>
+            <span className="text-[var(--text-muted)] text-xs">·</span>
+            <Link
+              href={"/brands/" + slug}
+              className="text-xs font-mono text-[var(--text-secondary)] hover:underline font-semibold"
+            >
+              Reset to 7 Days (Default)
             </Link>
           </div>
         </div>

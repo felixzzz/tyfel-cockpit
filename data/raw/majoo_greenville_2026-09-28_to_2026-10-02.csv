@@ -1,0 +1,29 @@
+Periode;28 September 2026 00:00:00 - 02 Oktober 2026 16:10:31
+Zona Waktu;Asia/Jakarta (GMT +7)
+Status Bayar;
+Jenis Order;Semua Jenis Order
+Jenis Harga;Semua
+Pencarian;
+Total Penjualan;1098250.00
+Penerimaan Pembayaran;1029250.00
+Total Penjualan Bersih;1098250.00
+Penjualan Belum Dibayar;69000.00
+Total Transaksi;15
+Date Generated;02/10/2026 - 16:10:42 WIB
+Transaction Last Update;Date Generated 02/10/2026 - 16:10:31 WIB
+No Transaksi;Waktu Order;Waktu Bayar;Outlet;Produk;Jenis Order;Sisa Tagihan (Rp.);Total Penjualan (Rp);Metode Pembayaran;Bayar;Order
+CS/91/260928/0001;28-09-2026 11:40:21;28-09-2026 11:40:59;Tyfel Coffee;Custom Amount;Lainnya;0.00;40250.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260928/0002;28-09-2026 13:35:05;28-09-2026 13:35:48;Tyfel Coffee;Cappuccino;Lainnya;0.00;40250.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260928/0003;28-09-2026 14:16:29;28-09-2026 15:51:48;Tyfel Coffee;Kopi Gula Aren;Lainnya;0.00;34500.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260928/0004;28-09-2026 15:38:26;28-09-2026 16:54:22;Tyfel Coffee;Kopi Gula Aren,Home Fries;Lainnya;0.00;69000.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260928/0005;28-09-2026 15:58:56;28-09-2026 15:59:39;Tyfel Coffee;Bolognese;Lainnya;0.00;57500.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260928/0006;28-09-2026 18:56:53;28-09-2026 18:58:44;Tyfel Coffee;Berry Boom;Lainnya;0.00;43700.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260929/0001;29-09-2026 13:55:24;29-09-2026 14:08:09;Tyfel Coffee;Long Black,Café Latte;Lainnya;0.00;195500.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260929/0002;29-09-2026 17:44:18;29-09-2026 17:49:40;Tyfel Coffee;Kopi Gula Aren;Lainnya;0.00;34500.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/260930/0001;30-09-2026 13:03:04;30-09-2026 13:12:02;Tyfel Coffee;Cappuccino;Lainnya;0.00;40250.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/261002/0001;02-10-2026 10:30:33;02-10-2026 10:32:36;Tyfel Coffee;Matcha Latte,Lychee Tea,Cappuccino,Potato Nuggets;Lainnya;0.00;251850.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/261002/0002;02-10-2026 11:44:32;02-10-2026 11:44:57;Tyfel Coffee;Kopi Gula Aren;Lainnya;0.00;34500.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/261002/0003;02-10-2026 13:04:35;02-10-2026 13:06:00;Tyfel Coffee;Long Black;Lainnya;0.00;103500.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/261002/0004;02-10-2026 14:51:02;02-10-2026 16:03:38;Tyfel Coffee;Ini Teh, Coklat;Lainnya;0.00;40250.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/261002/0005;02-10-2026 15:38:23;02-10-2026 15:39:03;Tyfel Coffee;Choco Yummy;Lainnya;0.00;43700.00;Kartu Debit/Kredit, BCA;Aji;Aji
+CS/91/261002/0006;02-10-2026 15:49:54;;Tyfel Coffee;Kopi Gula Aren,Home Fries;Lainnya;69000.00;69000.00;;;Aji

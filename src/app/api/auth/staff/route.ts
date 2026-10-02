@@ -33,10 +33,11 @@ export async function POST(request: NextRequest) {
     response.cookies.set({
       name: STAFF_AUTH_COOKIE,
       value: token,
-      httpOnly: false, // accessible to client for fast offline verification
+      httpOnly: true,
       path: '/',
       maxAge: 60 * 60 * 24 * 30,
       sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
     });
 
     return response;

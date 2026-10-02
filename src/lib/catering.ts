@@ -1042,9 +1042,9 @@ export async function initializeCateringSchemaAndSeed(
 }
 
 async function ensureCateringReady(): Promise<void> {
-  if (!globalForCatering.__fnbCateringSchemaEnsured) {
-    await initializeCateringSchemaAndSeed();
-  }
+  if (globalForCatering.__fnbCateringSchemaEnsured) return;
+  globalForCatering.__fnbCateringSchemaEnsured = true;
+  await initializeCateringSchemaAndSeed();
 }
 
 // ============================================================================

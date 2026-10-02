@@ -582,13 +582,13 @@ export function buildDateAndBranchFilterClause(filters?: QueryFilters, tablePref
   } else if (filters?.range) {
     const r = filters.range.toLowerCase();
     if (r === 'today') {
-      clauses.push(`CAST(${p}created_at AS DATE) = CAST(CURRENT_DATE AS DATE)`);
+      clauses.push(`CAST(${p}created_at AS DATE) = CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE)`);
     } else if (r === 'yesterday') {
-      clauses.push(`CAST(${p}created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 1 DAY AS DATE)`);
+      clauses.push(`CAST(${p}created_at AS DATE) = CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '1 day'`);
     } else if (r === '7d') {
-      clauses.push(`CAST(${p}created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 7 DAY AS DATE)`);
+      clauses.push(`CAST(${p}created_at AS DATE) >= CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '6 days'`);
     } else if (r === '30d') {
-      clauses.push(`CAST(${p}created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 30 DAY AS DATE)`);
+      clauses.push(`CAST(${p}created_at AS DATE) >= CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '29 days'`);
     }
   }
 
@@ -623,10 +623,10 @@ export async function computePeriodDeltas(
     : '';
 
   let comparisonLabel = '7d vs Prior 7d';
-  let currDateCond = `CAST(created_at AS DATE) >= CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL 6 DAY`;
-  let prevDateCond = `CAST(created_at AS DATE) >= CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL 13 DAY AND CAST(created_at AS DATE) < CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL 6 DAY`;
+  let currDateCond = `CAST(created_at AS DATE) >= CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL '6 days'`;
+  let prevDateCond = `CAST(created_at AS DATE) >= CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL '13 days' AND CAST(created_at AS DATE) < CAST((SELECT MAX(created_at) FROM fact_orders) AS DATE) - INTERVAL '6 days'`;
 
-  const range = (filters?.range || 'all').toLowerCase();
+  const range = (filters?.range || '7d').toLowerCase();
   if (filters?.from && filters?.to) {
     const fromDate = new Date(`${filters.from}T00:00:00Z`);
     const toDate = new Date(`${filters.to}T00:00:00Z`);
@@ -638,20 +638,20 @@ export async function computePeriodDeltas(
     prevDateCond = `CAST(created_at AS DATE) >= '${prevFrom}' AND CAST(created_at AS DATE) <= '${prevTo}'`;
   } else if (range === 'today') {
     comparisonLabel = 'vs Yesterday';
-    currDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE AS DATE)`;
-    prevDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 1 DAY AS DATE)`;
+    currDateCond = `CAST(created_at AS DATE) = CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE)`;
+    prevDateCond = `CAST(created_at AS DATE) = CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '1 day'`;
   } else if (range === 'yesterday') {
     comparisonLabel = 'vs Prior Day';
-    currDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 1 DAY AS DATE)`;
-    prevDateCond = `CAST(created_at AS DATE) = CAST(CURRENT_DATE - INTERVAL 2 DAY AS DATE)`;
+    currDateCond = `CAST(created_at AS DATE) = CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '1 day'`;
+    prevDateCond = `CAST(created_at AS DATE) = CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '2 days'`;
   } else if (range === '7d') {
     comparisonLabel = 'vs Prior 7d';
-    currDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 7 DAY AS DATE)`;
-    prevDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 14 DAY AS DATE) AND CAST(created_at AS DATE) < CAST(CURRENT_DATE - INTERVAL 7 DAY AS DATE)`;
+    currDateCond = `CAST(created_at AS DATE) >= CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '6 days'`;
+    prevDateCond = `CAST(created_at AS DATE) >= CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '13 days' AND CAST(created_at AS DATE) < CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '6 days'`;
   } else if (range === '30d') {
     comparisonLabel = 'vs Prior 30d';
-    currDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 30 DAY AS DATE)`;
-    prevDateCond = `CAST(created_at AS DATE) >= CAST(CURRENT_DATE - INTERVAL 60 DAY AS DATE) AND CAST(created_at AS DATE) < CAST(CURRENT_DATE - INTERVAL 30 DAY AS DATE)`;
+    currDateCond = `CAST(created_at AS DATE) >= CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '29 days'`;
+    prevDateCond = `CAST(created_at AS DATE) >= CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '59 days' AND CAST(created_at AS DATE) < CAST((SELECT COALESCE(MAX(created_at), CURRENT_DATE) FROM fact_orders) AS DATE) - INTERVAL '29 days'`;
   }
 
   const [orderWindowRows, cancelWindowRows] = await Promise.all([
@@ -1680,9 +1680,9 @@ export async function getKitchenSlaDiagnostic(
     `),
     runQuery<Record<string, unknown>>(`
       SELECT
-        COALESCE(ROUND(QUANTILE_CONT(CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS combined_p90,
-        COALESCE(ROUND(QUANTILE_CONT(CASE WHEN LOWER(o.branch) = 'kemang' AND o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS kemang_p90,
-        COALESCE(ROUND(QUANTILE_CONT(CASE WHEN LOWER(o.branch) = 'greenville' AND o.prep_time_minutes > 0 THEN o.prep_time_minutes END, 0.9), 1), 0) AS greenville_p90
+        COALESCE(ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY CASE WHEN o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS combined_p90,
+        COALESCE(ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY CASE WHEN LOWER(o.branch) = 'kemang' AND o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS kemang_p90,
+        COALESCE(ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY CASE WHEN LOWER(o.branch) = 'greenville' AND o.prep_time_minutes > 0 THEN o.prep_time_minutes END), 1), 0) AS greenville_p90
       FROM fact_orders o
       WHERE ${baseWhere};
     `),

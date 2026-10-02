@@ -34,9 +34,11 @@ interface PageProps {
 
 export default async function DashboardPage({ searchParams }: PageProps) {
   const resolvedSearchParams = await searchParams;
+  const defaultRange = resolvedSearchParams?.from || resolvedSearchParams?.to ? undefined : "7d";
+  const selectedRange = resolvedSearchParams?.range ?? defaultRange;
   const filters: QueryFilters = {
     branch: resolvedSearchParams?.branch,
-    range: resolvedSearchParams?.range,
+    range: selectedRange,
     from: resolvedSearchParams?.from,
     to: resolvedSearchParams?.to,
   };
@@ -74,7 +76,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   // Construct query string for persistent brand navigation
   const queryParams = new URLSearchParams();
   if (filters.branch && filters.branch !== "all") queryParams.set("branch", filters.branch);
-  if (filters.range && filters.range !== "all") queryParams.set("range", filters.range);
+  if (filters.range && filters.range !== "7d") queryParams.set("range", filters.range);
   if (filters.from) queryParams.set("from", filters.from);
   if (filters.to) queryParams.set("to", filters.to);
   const filterQs = queryParams.toString() ? "?" + queryParams.toString() : "";
@@ -89,7 +91,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     filters.from || filters.to
       ? `${filters.from || "Start"} to ${filters.to || "Latest"}`
       : filters.range && filters.range !== "all"
-      ? `Last ${filters.range}`
+      ? filters.range === "7d"
+        ? "Last 7 Days"
+        : `Last ${filters.range}`
       : "Full Historical Window";
 
   return (
@@ -148,7 +152,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <Suspense fallback={<div className="h-16 cockpit-panel rounded-2xl animate-pulse" />}>
         <FilterBar
           initialBranch={filters.branch || "all"}
-          initialRange={filters.range || "all"}
+          initialRange={filters.range || "7d"}
           initialFrom={filters.from || ""}
           initialTo={filters.to || ""}
         />

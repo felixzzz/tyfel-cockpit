@@ -23,7 +23,7 @@ const fontMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'MAUS Atelier · FnB Operations & Culinary Economics',
+  title: 'Tyfel Hub · FnB Operations & Culinary Economics',
   description:
     'Executive multi-brand unit economics, kitchen SLA throughput & payroll command across Greenville & Kemang',
 };

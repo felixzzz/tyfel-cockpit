@@ -6,60 +6,53 @@ import { useTheme } from "./ThemeProvider";
 import {
   ChefHat,
   Lock,
+  Mail,
   ArrowRight,
   Sun,
   Moon,
   ShieldAlert,
   Utensils,
-  KeyRound,
   Eye,
   EyeOff,
 } from "lucide-react";
 
-interface StaffLoginScreenProps {
-  onSuccess: () => void;
+interface LoginScreenProps {
+  onSuccess: (user: { id: string; email: string; name: string; role: string; permissions: string[] }) => void;
 }
 
-export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
+export function StaffLoginScreen({ onSuccess }: LoginScreenProps) {
   const { theme, setTheme } = useTheme();
-  const [passcode, setPasscode] = useState("");
-  const [showPasscode, setShowPasscode] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [showPwd, setShowPwd]   = useState(false);
+  const [loading, setLoading]   = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!passcode.trim()) return;
+    if (!email.trim() || !password.trim()) return;
 
     setLoading(true);
     setErrorMsg(null);
 
     try {
-      const res = await fetch("/api/auth/staff", {
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passcode: passcode.trim() }),
+        body: JSON.stringify({ email: email.trim(), password: password.trim() }),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        if (typeof window !== "undefined") {
-          localStorage.setItem("fnb_ops_staff_auth_v1", "true");
-        }
-        onSuccess();
+        onSuccess(data.user);
       } else {
-        setErrorMsg(data.error || "Passcode salah. Silakan coba lagi.");
+        setErrorMsg(data.error || "Email atau password salah.");
       }
     } catch {
       setErrorMsg("Koneksi gagal. Silakan coba lagi.");
     } finally {
       setLoading(false);
     }
-  }
-
-  function handleQuickPasscode(code: string) {
-    setPasscode(code);
-    setErrorMsg(null);
   }
 
   return (
@@ -72,10 +65,10 @@ export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
           </div>
           <div>
             <div className="text-sm font-bold tracking-tight text-[var(--text-primary)] font-display leading-none">
-              MAUS ATELIER
+              Tyfel Hub
             </div>
             <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)] mt-1">
-              F&B Ops & Culinary Economics
+              F&B Ops &amp; Culinary Economics
             </div>
           </div>
         </div>
@@ -109,10 +102,10 @@ export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
         </div>
       </header>
 
-      {/* Main Lock Card */}
+      {/* Main Login Card */}
       <main className="max-w-md w-full mx-auto my-8">
         <div className="cockpit-panel rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl border border-[var(--border-strong)] relative overflow-hidden">
-          {/* Subtle Accent Glow */}
+          {/* Accent Glow */}
           <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--accent-primary)]/10 rounded-full blur-2xl pointer-events-none" />
 
           <div className="space-y-2 text-center">
@@ -120,47 +113,69 @@ export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
               <Lock className="w-6 h-6" />
             </div>
             <h1 className="text-xl font-bold font-display text-[var(--text-primary)] tracking-tight">
-              Staff & Operations Login
+              Staff &amp; Operations Login
             </h1>
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Area manajemen internal untuk unit economics, recipe COGS, kitchen throughput & catering CRM.
+              Area manajemen internal untuk unit economics, recipe COGS, kitchen throughput &amp; catering CRM.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
             <div className="space-y-2">
               <label
-                htmlFor="staff-passcode"
+                htmlFor="staff-email"
                 className="block text-[11px] font-mono uppercase tracking-wider text-[var(--text-secondary)] font-semibold"
               >
-                Staff Passcode / Security PIN
+                Email Address
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--text-muted)]">
-                  <KeyRound className="w-4 h-4" />
+                  <Mail className="w-4 h-4" />
                 </div>
                 <input
-                  id="staff-passcode"
-                  type={showPasscode ? "text" : "password"}
-                  value={passcode}
-                  onChange={(e) => setPasscode(e.target.value)}
-                  placeholder="Masukkan passcode (contoh: maus2026)"
-                  autoComplete="current-password"
+                  id="staff-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nama@tyfelhub.id"
+                  autoComplete="username"
                   autoFocus
+                  required
+                  className="w-full pl-9 pr-4 py-3 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Password */}
+            <div className="space-y-2">
+              <label
+                htmlFor="staff-password"
+                className="block text-[11px] font-mono uppercase tracking-wider text-[var(--text-secondary)] font-semibold"
+              >
+                Password
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--text-muted)]">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <input
+                  id="staff-password"
+                  type={showPwd ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
                   required
                   className="w-full pl-9 pr-10 py-3 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] font-mono placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] transition-all"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPasscode(!showPasscode)}
+                  onClick={() => setShowPwd(!showPwd)}
                   className="absolute inset-y-0 right-0 pr-3 flex items-center text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
                   tabIndex={-1}
                 >
-                  {showPasscode ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
+                  {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -174,7 +189,7 @@ export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
 
             <button
               type="submit"
-              disabled={loading || !passcode.trim()}
+              disabled={loading || !email.trim() || !password.trim()}
               className="w-full py-3 px-4 rounded-xl bg-[var(--accent-primary)] hover:opacity-90 active:scale-[0.99] text-white text-xs font-bold font-display uppercase tracking-wider flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
@@ -187,30 +202,17 @@ export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
               )}
             </button>
 
-            {/* Quick Demo Assist */}
-            <div className="pt-2 text-center">
-              <span className="text-[11px] text-[var(--text-muted)]">
-                Demo Passcode:{" "}
-                <button
-                  type="button"
-                  onClick={() => handleQuickPasscode("maus2026")}
-                  className="font-mono text-[var(--accent-primary)] font-semibold hover:underline cursor-pointer"
-                >
-                  maus2026
-                </button>{" "}
-                atau{" "}
-                <button
-                  type="button"
-                  onClick={() => handleQuickPasscode("8888")}
-                  className="font-mono text-[var(--accent-primary)] font-semibold hover:underline cursor-pointer"
-                >
-                  8888
-                </button>
-              </span>
-            </div>
+            {/* Hint */}
+            <p className="text-center text-[11px] text-[var(--text-muted)]">
+              Akun pertama:{" "}
+              <span className="font-mono text-[var(--text-secondary)]">
+                admin@tyfelhub.id
+              </span>{" "}
+              / password default di <span className="font-mono">SEED_ADMIN_PASSWORD</span>
+            </p>
           </form>
 
-          {/* Customer Separation Card */}
+          {/* Customer Portal Separation */}
           <div className="pt-4 border-t border-[var(--border-subtle)] space-y-2">
             <div className="text-[11px] font-semibold text-[var(--text-secondary)] flex items-center gap-1.5">
               <Utensils className="w-3.5 h-3.5 text-emerald-500" />
@@ -232,7 +234,7 @@ export function StaffLoginScreen({ onSuccess }: StaffLoginScreenProps) {
 
       {/* Footer */}
       <footer className="text-center text-[11px] text-[var(--text-muted)] font-mono max-w-md mx-auto">
-        Greenville & Kemang Outlets · Security Isolation Active
+        Tyfel Hub · Greenville &amp; Kemang Outlets · Security Isolation Active
       </footer>
     </div>
   );

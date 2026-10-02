@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import postgres from 'postgres';
 import type { DuckDBInstance, DuckDBConnection } from '@duckdb/node-api';
 
 const BUNDLED_DB_PATH = path.join(process.cwd(), 'data', 'fnb_analytics.duckdb');
@@ -1387,13 +1388,79 @@ function createLayerbaseHttpInstance(options: {
   } as unknown as DuckDBInstance;
 }
 
+let pgSqlClient: postgres.Sql | null = null;
+
+function createPostgresInstance(connectionString: string): DuckDBInstance {
+  if (!pgSqlClient) {
+    pgSqlClient = postgres(connectionString, {
+      ssl: 'require',
+      max: 20,
+      idle_timeout: 30,
+      connect_timeout: 10,
+      prepare: false, // Required for transaction-mode connection poolers
+      onnotice: () => {}, // Silence notice spam (e.g., relation already exists)
+    });
+  }
+  const sql = pgSqlClient;
+
+  const conn = {
+    async run(queryText: string) {
+      const normalized = queryText.trim().replace(/;+\s*$/, '').toUpperCase();
+      if (normalized === 'CHECKPOINT' || normalized === 'FORCE CHECKPOINT') {
+        return {
+          columnNames: () => [] as string[],
+          getRows: async () => [] as unknown[][],
+        };
+      }
+
+      if (isMutatingSql(queryText)) {
+        invalidateQueryCache();
+      }
+
+      const res = await sql.unsafe(queryText);
+      const columns = res.columns ? res.columns.map((c) => c.name) : [];
+      const rows = res.map((r) =>
+        columns.map((colName) => {
+          const val = r[colName];
+          return normalizeLayerbaseValue(val, colName);
+        })
+      );
+
+      return {
+        columnNames: () => columns,
+        getRows: async () => rows,
+      };
+    },
+    closeSync() {
+      // Pooled connection managed automatically
+    },
+  };
+
+  return {
+    async connect() {
+      return conn as unknown as DuckDBConnection;
+    },
+  } as unknown as DuckDBInstance;
+}
+
 export async function getDuckDB(): Promise<DuckDBInstance> {
   if (dbInstance) return dbInstance;
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
       ensureLocalEnvLoaded();
-      const connectionString =
-        process.env.LAYERBASE_CONNECTION_STRING || process.env.DATABASE_URL || '';
+
+      const databaseUrl = process.env.DATABASE_URL || '';
+      // Primary: Supabase / PostgreSQL Direct Connection Pooler
+      if (
+        databaseUrl &&
+        (databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://'))
+      ) {
+        const instance = createPostgresInstance(databaseUrl);
+        dbInstance = instance;
+        return instance;
+      }
+
+      const connectionString = process.env.LAYERBASE_CONNECTION_STRING || '';
       const apiKey = process.env.LAYERBASE_API_KEY || '';
 
       if (process.env.LAYERBASE_DISABLED !== 'true' && (connectionString || apiKey)) {

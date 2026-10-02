@@ -18,17 +18,17 @@ const BRANCHES = [
 ];
 
 const DATE_PRESETS = [
-  { id: "all", label: "All Time" },
-  { id: "30d", label: "30 Days" },
   { id: "7d", label: "7 Days" },
-  { id: "yesterday", label: "Yesterday" },
+  { id: "30d", label: "30 Days" },
   { id: "today", label: "Today" },
+  { id: "yesterday", label: "Yesterday" },
+  { id: "all", label: "All Time" },
   { id: "custom", label: "Custom" },
 ];
 
 export function FilterBar({
   initialBranch = "all",
-  initialRange = "all",
+  initialRange = "7d",
   initialFrom = "",
   initialTo = "",
 }: FilterBarProps) {
@@ -38,7 +38,9 @@ export function FilterBar({
   const [isPending, startTransition] = useTransition();
 
   const currentBranch = searchParams.get("branch") || initialBranch;
-  const currentRange = searchParams.get("range") || initialRange;
+  const currentRange =
+    searchParams.get("range") ||
+    (searchParams.get("from") || searchParams.get("to") ? "custom" : initialRange);
   const [customFrom, setCustomFrom] = useState(searchParams.get("from") || initialFrom || "");
   const [customTo, setCustomTo] = useState(searchParams.get("to") || initialTo || "");
   const [showCustomInputs, setShowCustomInputs] = useState(
@@ -54,7 +56,7 @@ export function FilterBar({
     }
 
     if (updates.range !== undefined) {
-      if (updates.range === "all") {
+      if (updates.range === "7d") {
         params.delete("range");
         params.delete("from");
         params.delete("to");
@@ -116,7 +118,7 @@ export function FilterBar({
   };
 
   const hasActiveFilters =
-    currentBranch !== "all" || currentRange !== "all" || Boolean(searchParams.get("from"));
+    currentBranch !== "all" || currentRange !== "7d" || Boolean(searchParams.get("from"));
 
   return (
     <div className="cockpit-panel rounded-2xl p-3.5 sm:p-4 space-y-3">
