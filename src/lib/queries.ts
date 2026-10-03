@@ -56,6 +56,20 @@ export interface DailyTrendPoint {
   sla_breaches: number;
 }
 
+export interface WeeklyDayPerformancePoint {
+  dayNum: number;
+  dayName: string;
+  fullDayName: string;
+  orderCount: number;
+  grossGmv: number;
+  netPayout: number;
+  merchantPromoBurn: number;
+  avgOrderValue: number;
+  avgPrepTimeMin: number;
+  slaBreaches: number;
+  isWeekend: boolean;
+}
+
 export interface PrimeCostSummary {
   grossGmv: number;
   merchantPromoBurn: number;
@@ -166,6 +180,7 @@ export interface BranchStats {
   merchant_promo_burn: number;
   avg_prep_time_min: number;
   sla_breaches: number;
+  avg_order_value?: number;
 }
 
 export interface ChannelStats {
@@ -175,6 +190,8 @@ export interface ChannelStats {
   net_payout: number;
   merchant_promo_burn: number;
   net_realization_rate: number;
+  avg_order_value?: number;
+  net_avg_order_value?: number;
 }
 
 export interface TopItem {
@@ -316,6 +333,77 @@ export interface MenuEngineeringSummary {
   avgVolumeBenchmark: number;
   avgMarginBenchmarkRp: number;
   heroBoms: HeroRecipeBomSummary[];
+}
+
+export interface GlobalMenuEngineeringItem {
+  recipe_id?: string | null;
+  brand: string;
+  item_name: string;
+  canonical_name: string;
+  category: string;
+  bom_summary: string;
+  is_hero_bom: boolean;
+  has_recipe_bom: boolean;
+  total_qty: number;
+  dine_in_qty: number;
+  delivery_qty: number;
+  total_revenue: number;
+  avg_selling_price: number;
+  raw_food_cost: number;
+  packaging_cost: number;
+  blended_cogs: number;
+  estimated_platform_fee: number;
+  estimated_promo_burn: number;
+  unit_net_contribution_rp: number;
+  unit_net_contribution_pct: number;
+  total_net_contribution_rp: number;
+  quadrant: MenuEngineeringQuadrant;
+  quadrant_action: string;
+  price_elasticity_recommendation: string;
+}
+
+export interface GlobalMenuEngineeringReport {
+  items: GlobalMenuEngineeringItem[];
+  summary: {
+    totalItemsCount: number;
+    starsCount: number;
+    plowhorsesCount: number;
+    puzzlesCount: number;
+    dogsCount: number;
+    totalUnitsSold: number;
+    totalGrossRevenue: number;
+    totalNetContributionRp: number;
+    avgNetContributionMarginPct: number;
+    avgVolumeBenchmark: number;
+    avgMarginBenchmarkRp: number;
+  };
+}
+
+export interface HourlyLaborEfficiencyPoint {
+  hour_of_day: number;
+  hour_label: string;
+  order_count: number;
+  gross_gmv: number;
+  net_payout: number;
+  active_staff_count: number;
+  estimated_labor_cost: number;
+  splh: number;
+  labor_cost_pct: number;
+  avg_prep_time_min: number;
+  sla_breaches: number;
+  operational_status: 'Optimal' | 'Overstaffed Dead-Hour' | 'Understaffed Bottleneck' | 'Off-Shift';
+  recommendation: string;
+}
+
+export interface HourlyLaborEfficiencyReport {
+  hourlyPoints: HourlyLaborEfficiencyPoint[];
+  peakSplhHour: string;
+  peakSplhValue: number;
+  highestStrainHour: string;
+  totalLaborHours: number;
+  totalLaborCost: number;
+  blendedSplh: number;
+  blendedLaborPct: number;
 }
 
 export interface OrderItemBrandCoverage {
@@ -828,7 +916,17 @@ export async function getBrandBreakdown(filters?: QueryFilters): Promise<BrandSt
 
 export async function getBranchComparison(filters?: QueryFilters): Promise<BranchStats[]> {
   const where = buildWhereClause(filters);
-  return await runQuery<BranchStats>(`
+  const rows = await runQuery<{
+    branch: string;
+    order_count: number;
+    gross_gmv: number;
+    net_payout: number;
+    net_realization_rate: number;
+    merchant_promo_burn: number;
+    avg_prep_time_min: number;
+    sla_breaches: number;
+    avg_order_value: number;
+  }>(`
     SELECT
       branch,
       COUNT(*) AS order_count,
@@ -840,17 +938,42 @@ export async function getBranchComparison(filters?: QueryFilters): Promise<Branc
       END AS net_realization_rate,
       COALESCE(SUM(merchant_promo_burn), 0) AS merchant_promo_burn,
       COALESCE(ROUND(AVG(prep_time_minutes), 1), 0) AS avg_prep_time_min,
-      COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches
+      COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches,
+      CASE
+        WHEN COUNT(*) > 0 THEN ROUND((SUM(gross_amount) / COUNT(*))::numeric, 0)
+        ELSE 0
+      END AS avg_order_value
     FROM fact_orders
     WHERE ${where}
     GROUP BY branch
     ORDER BY gross_gmv DESC;
   `);
+
+  return rows.map((r) => ({
+    branch: r.branch,
+    order_count: Number(r.order_count || 0),
+    gross_gmv: Number(r.gross_gmv || 0),
+    net_payout: Number(r.net_payout || 0),
+    net_realization_rate: Number(r.net_realization_rate || 0),
+    merchant_promo_burn: Number(r.merchant_promo_burn || 0),
+    avg_prep_time_min: Number(r.avg_prep_time_min || 0),
+    sla_breaches: Number(r.sla_breaches || 0),
+    avg_order_value: Number(r.avg_order_value || 0),
+  }));
 }
 
 export async function getChannelPerformance(filters?: QueryFilters): Promise<ChannelStats[]> {
   const where = buildWhereClause(filters);
-  return await runQuery<ChannelStats>(`
+  const rows = await runQuery<{
+    provider: string;
+    order_count: number;
+    gross_gmv: number;
+    net_payout: number;
+    merchant_promo_burn: number;
+    net_realization_rate: number;
+    avg_order_value: number;
+    net_avg_order_value: number;
+  }>(`
     SELECT
       CASE
         WHEN LOWER(provider) LIKE '%grab%' THEN 'GrabFood'
@@ -865,12 +988,31 @@ export async function getChannelPerformance(filters?: QueryFilters): Promise<Cha
       CASE 
         WHEN SUM(gross_amount) > 0 THEN ROUND((SUM(net_payout) / SUM(gross_amount)) * 100, 1) 
         ELSE 0 
-      END AS net_realization_rate
+      END AS net_realization_rate,
+      CASE
+        WHEN COUNT(*) > 0 THEN ROUND((SUM(gross_amount) / COUNT(*))::numeric, 0)
+        ELSE 0
+      END AS avg_order_value,
+      CASE
+        WHEN COUNT(*) > 0 THEN ROUND((SUM(net_payout) / COUNT(*))::numeric, 0)
+        ELSE 0
+      END AS net_avg_order_value
     FROM fact_orders
     WHERE ${where}
     GROUP BY 1
     ORDER BY gross_gmv DESC;
   `);
+
+  return rows.map((r) => ({
+    provider: r.provider,
+    order_count: Number(r.order_count || 0),
+    gross_gmv: Number(r.gross_gmv || 0),
+    net_payout: Number(r.net_payout || 0),
+    merchant_promo_burn: Number(r.merchant_promo_burn || 0),
+    net_realization_rate: Number(r.net_realization_rate || 0),
+    avg_order_value: Number(r.avg_order_value || 0),
+    net_avg_order_value: Number(r.net_avg_order_value || 0),
+  }));
 }
 
 export async function getTopItems(limit: number = 10, filters?: QueryFilters): Promise<TopItem[]> {
@@ -952,6 +1094,76 @@ export async function getDailyRevenueTrend(
       net_realization_rate: Number(r.net_realization_rate ?? 0),
       avg_prep_time_min: Number(r.avg_prep_time_min ?? 0),
       sla_breaches: Number(r.sla_breaches ?? 0),
+    };
+  });
+}
+
+export async function getWeeklyDayPerformance(
+  filters?: QueryFilters,
+  brandName?: string
+): Promise<WeeklyDayPerformancePoint[]> {
+  const where = buildWhereClause(filters);
+  const brandClause = brandName
+    ? ` AND LOWER(brand) = '${brandName.toLowerCase().replace(/'/g, "''")}'`
+    : '';
+
+  const rows = await runQuery<{
+    day_num: number;
+    order_count: number;
+    gross_gmv: number;
+    net_payout: number;
+    merchant_promo_burn: number;
+    avg_prep_time_min: number;
+    sla_breaches: number;
+    avg_order_value: number;
+  }>(`
+    SELECT
+      EXTRACT(ISODOW FROM created_at) AS day_num,
+      COUNT(*) AS order_count,
+      COALESCE(SUM(gross_amount), 0) AS gross_gmv,
+      COALESCE(SUM(net_payout), 0) AS net_payout,
+      COALESCE(SUM(merchant_promo_burn), 0) AS merchant_promo_burn,
+      COALESCE(ROUND(AVG(prep_time_minutes)::numeric, 1), 0) AS avg_prep_time_min,
+      COALESCE(SUM(CASE WHEN kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches,
+      CASE
+        WHEN COUNT(*) > 0 THEN ROUND((SUM(gross_amount) / COUNT(*))::numeric, 0)
+        ELSE 0
+      END AS avg_order_value
+    FROM fact_orders
+    WHERE ${where}${brandClause} AND created_at IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1 ASC;
+  `);
+
+  const dayMeta = [
+    { num: 7, short: 'Sun', full: 'Sunday', weekend: true },
+    { num: 1, short: 'Mon', full: 'Monday', weekend: false },
+    { num: 2, short: 'Tue', full: 'Tuesday', weekend: false },
+    { num: 3, short: 'Wed', full: 'Wednesday', weekend: false },
+    { num: 4, short: 'Thu', full: 'Thursday', weekend: false },
+    { num: 5, short: 'Fri', full: 'Friday', weekend: true },
+    { num: 6, short: 'Sat', full: 'Saturday', weekend: true },
+  ];
+
+  const rowMap = new Map<number, typeof rows[0]>();
+  for (const r of rows) {
+    rowMap.set(Number(r.day_num), r);
+  }
+
+  return dayMeta.map((m) => {
+    const r = rowMap.get(m.num);
+    return {
+      dayNum: m.num,
+      dayName: m.short,
+      fullDayName: m.full,
+      orderCount: Number(r?.order_count ?? 0),
+      grossGmv: Number(r?.gross_gmv ?? 0),
+      netPayout: Number(r?.net_payout ?? 0),
+      merchantPromoBurn: Number(r?.merchant_promo_burn ?? 0),
+      avgOrderValue: Number(r?.avg_order_value ?? 0),
+      avgPrepTimeMin: Number(r?.avg_prep_time_min ?? 0),
+      slaBreaches: Number(r?.sla_breaches ?? 0),
+      isWeekend: m.weekend,
     };
   });
 }
@@ -3166,6 +3378,490 @@ export async function resetAutoMappedRecipeBoms(brandFilter?: string): Promise<{
     await runQuery(`DELETE FROM dim_recipes WHERE recipe_id LIKE 'AUTO-%'${brandClause};`);
   }
   return { deletedCount };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENHANCEMENT 1: GLOBAL MENU ENGINEERING (BCG MATRIX) & SKU NET CONTRIBUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getGlobalMenuEngineering(
+  filters?: QueryFilters,
+  brandFilter?: string
+): Promise<GlobalMenuEngineeringReport> {
+  const itemWhere = buildWhereClause(filters, 'foi');
+  const brandClause =
+    brandFilter && brandFilter !== 'all'
+      ? ` AND LOWER(foi.brand) = '${brandFilter.toLowerCase().replace(/'/g, "''")}'`
+      : '';
+
+  const rawRows = await runQuery<{
+    recipe_id: string | null;
+    brand: string;
+    item_name: string;
+    canonical_name: string | null;
+    category: string | null;
+    bom_summary: string | null;
+    is_hero_bom: boolean | null;
+    has_recipe_bom: boolean;
+    total_qty: number;
+    dine_in_qty: number;
+    delivery_qty: number;
+    total_revenue: number;
+    avg_price: number;
+    raw_food_cost: number | null;
+    packaging_dine_in: number | null;
+    packaging_delivery: number | null;
+    target_food_cost_pct: number | null;
+  }>(`
+    SELECT
+      MAX(r.recipe_id) AS recipe_id,
+      foi.brand,
+      foi.item_name,
+      MAX(r.canonical_name) AS canonical_name,
+      COALESCE(MAX(r.category), COALESCE(foi.category, 'General')) AS category,
+      MAX(r.bom_summary) AS bom_summary,
+      BOOL_OR(COALESCE(r.is_hero_bom, FALSE)) AS is_hero_bom,
+      BOOL_OR(r.recipe_id IS NOT NULL) AS has_recipe_bom,
+      CAST(SUM(COALESCE(foi.item_qty, 1)) AS INTEGER) AS total_qty,
+      CAST(SUM(CASE WHEN LOWER(foi.provider) LIKE '%pos%' OR LOWER(foi.provider) LIKE '%majoo%' OR LOWER(foi.provider) LIKE '%greenville%' THEN COALESCE(foi.item_qty, 1) ELSE 0 END) AS INTEGER) AS dine_in_qty,
+      CAST(SUM(CASE WHEN LOWER(foi.provider) LIKE '%pos%' OR LOWER(foi.provider) LIKE '%majoo%' OR LOWER(foi.provider) LIKE '%greenville%' THEN 0 ELSE COALESCE(foi.item_qty, 1) END) AS INTEGER) AS delivery_qty,
+      CAST(SUM(COALESCE(foi.total_price, 0)) AS DOUBLE) AS total_revenue,
+      CAST(ROUND(AVG(COALESCE(foi.item_price, 0)), 0) AS DOUBLE) AS avg_price,
+      MAX(r.raw_food_cost) AS raw_food_cost,
+      MAX(r.packaging_dine_in) AS packaging_dine_in,
+      MAX(r.packaging_delivery) AS packaging_delivery,
+      MAX(r.target_food_cost_pct) AS target_food_cost_pct
+    FROM fact_order_items foi
+    LEFT JOIN dim_recipes r
+      ON LOWER(foi.brand) = LOWER(r.brand)
+     AND LOWER(TRIM(foi.item_name)) = LOWER(TRIM(r.item_name))
+    WHERE ${itemWhere}${brandClause}
+      AND LOWER(foi.item_name) NOT LIKE '%cutler%'
+    GROUP BY foi.brand, foi.item_name, foi.category
+    ORDER BY total_qty DESC;
+  `);
+
+  if (!rawRows.length) {
+    return {
+      items: [],
+      summary: {
+        totalItemsCount: 0,
+        starsCount: 0,
+        plowhorsesCount: 0,
+        puzzlesCount: 0,
+        dogsCount: 0,
+        totalUnitsSold: 0,
+        totalGrossRevenue: 0,
+        totalNetContributionRp: 0,
+        avgNetContributionMarginPct: 0,
+        avgVolumeBenchmark: 0,
+        avgMarginBenchmarkRp: 0,
+      },
+    };
+  }
+
+  // Pre-process items to calculate exact unit economics
+  const parsedItems = rawRows.map((row) => {
+    const brand = String(row.brand || 'Unbranded');
+    const itemName = String(row.item_name || 'Item');
+    const lowerName = itemName.toLowerCase();
+    const cat = String(row.category || 'General');
+    const lowerCat = cat.toLowerCase();
+
+    const isBeverage =
+      lowerCat.includes('drink') ||
+      lowerCat.includes('espresso') ||
+      lowerCat.includes('beverage') ||
+      lowerCat.includes('refresher') ||
+      lowerName.includes('coffee') ||
+      lowerName.includes('latte') ||
+      lowerName.includes('tea') ||
+      lowerName.includes('water');
+
+    const isSide =
+      lowerCat.includes('side') ||
+      lowerCat.includes('lite') ||
+      lowerName.includes('tots') ||
+      lowerName.includes('fries') ||
+      lowerName.includes('nugget');
+
+    const totalQty = Number(row.total_qty || 0);
+    const dineInQty = Number(row.dine_in_qty || 0);
+    const deliveryQty = Math.max(0, totalQty - dineInQty);
+    const deliveryRatio = totalQty > 0 ? deliveryQty / totalQty : 1;
+
+    const totalRevenue = Number(row.total_revenue || 0);
+    const avgSellingPrice =
+      Number(row.avg_price) > 0
+        ? Number(row.avg_price)
+        : totalQty > 0
+        ? Math.round(totalRevenue / totalQty)
+        : 35000;
+
+    // Food Cost: From BOM if present, otherwise culinary category benchmark
+    const rawFoodCost =
+      row.raw_food_cost !== null && row.raw_food_cost !== undefined
+        ? Number(row.raw_food_cost)
+        : Math.round(avgSellingPrice * (isBeverage ? 0.16 : isSide ? 0.23 : 0.28));
+
+    // Packaging: Blended between Delivery and Dine-in
+    const pkgDineIn =
+      row.packaging_dine_in !== null && row.packaging_dine_in !== undefined
+        ? Number(row.packaging_dine_in)
+        : isSide
+        ? 300
+        : 0;
+
+    const pkgDelivery =
+      row.packaging_delivery !== null && row.packaging_delivery !== undefined
+        ? Number(row.packaging_delivery)
+        : isBeverage
+        ? 1950
+        : isSide
+        ? 1800
+        : 2600;
+
+    const packagingCost = Math.round(deliveryRatio * pkgDelivery + (1 - deliveryRatio) * pkgDineIn);
+    const blendedCogs = rawFoodCost + packagingCost;
+
+    // Aggregator Commission: ~20% on delivery portion, 0% on direct dine-in
+    const estimatedPlatformFee = Math.round(deliveryRatio * 0.20 * avgSellingPrice);
+
+    // Merchant Promo Burn: ~8% on delivery portion
+    const estimatedPromoBurn = Math.round(deliveryRatio * 0.08 * avgSellingPrice);
+
+    // Realized Net Contribution per Unit (After Platform cut, Promo burn, and Prime BOM)
+    const unitNetContributionRp = Math.max(
+      0,
+      avgSellingPrice - estimatedPlatformFee - estimatedPromoBurn - blendedCogs
+    );
+    const unitNetContributionPct =
+      avgSellingPrice > 0 ? Number(((unitNetContributionRp / avgSellingPrice) * 100).toFixed(1)) : 0;
+    const totalNetContributionRp = unitNetContributionRp * totalQty;
+
+    return {
+      recipe_id: row.recipe_id ? String(row.recipe_id) : null,
+      brand,
+      item_name: itemName,
+      canonical_name: row.canonical_name ? String(row.canonical_name) : itemName,
+      category: cat,
+      bom_summary:
+        row.bom_summary ||
+        (isBeverage
+          ? 'Beverage base & sealable packaging'
+          : isSide
+          ? 'Crispy side portion & sleeve'
+          : 'Standard culinary recipe BOM'),
+      is_hero_bom: Boolean(row.is_hero_bom),
+      has_recipe_bom: Boolean(row.has_recipe_bom),
+      total_qty: totalQty,
+      dine_in_qty: dineInQty,
+      delivery_qty: deliveryQty,
+      total_revenue: totalRevenue,
+      avg_selling_price: avgSellingPrice,
+      raw_food_cost: rawFoodCost,
+      packaging_cost: packagingCost,
+      blended_cogs: blendedCogs,
+      estimated_platform_fee: estimatedPlatformFee,
+      estimated_promo_burn: estimatedPromoBurn,
+      unit_net_contribution_rp: unitNetContributionRp,
+      unit_net_contribution_pct: unitNetContributionPct,
+      total_net_contribution_rp: totalNetContributionRp,
+    };
+  });
+
+  const totalUnitsSold = parsedItems.reduce((acc, it) => acc + it.total_qty, 0);
+  const totalGrossRevenue = parsedItems.reduce((acc, it) => acc + it.total_revenue, 0);
+  const totalNetContributionRp = parsedItems.reduce((acc, it) => acc + it.total_net_contribution_rp, 0);
+  const avgNetContributionMarginPct =
+    totalGrossRevenue > 0
+      ? Number(((totalNetContributionRp / totalGrossRevenue) * 100).toFixed(1))
+      : 0;
+
+  // Thresholds for BCG Quadrants
+  const avgVolumeBenchmark =
+    parsedItems.length > 0 ? Math.round(totalUnitsSold / parsedItems.length) : 0;
+  const avgMarginBenchmarkRp =
+    parsedItems.length > 0
+      ? Math.round(parsedItems.reduce((acc, it) => acc + it.unit_net_contribution_rp, 0) / parsedItems.length)
+      : 0;
+
+  let starsCount = 0;
+  let plowhorsesCount = 0;
+  let puzzlesCount = 0;
+  let dogsCount = 0;
+
+  const items: GlobalMenuEngineeringItem[] = parsedItems.map((it) => {
+    const isHighVol = it.total_qty >= avgVolumeBenchmark;
+    // High margin if net contribution % >= 32% or Rp contribution exceeds benchmark
+    const isHighMargin =
+      it.unit_net_contribution_pct >= 32.0 || it.unit_net_contribution_rp >= avgMarginBenchmarkRp;
+
+    let quadrant: MenuEngineeringQuadrant;
+    let quadrant_action: string;
+    let price_elasticity_recommendation: string;
+
+    if (isHighVol && isHighMargin) {
+      quadrant = 'Star';
+      quadrant_action = 'Core Profit Engine — Maintain strict recipe consistency, prime app banners, zero stockout';
+      price_elasticity_recommendation = 'Inelastic · Keep price stable; leverage as anchor for high-margin beverage combos';
+      starsCount++;
+    } else if (isHighVol && !isHighMargin) {
+      quadrant = 'Plowhorse';
+      quadrant_action = 'Margin Drain — High volume but platform cut & COGS eat profit. Nudge price or trim portion';
+      price_elasticity_recommendation = 'Moderately Elastic · Test price increase of +Rp 3.000–5.000 or reduce meat/dairy by 7%';
+      plowhorsesCount++;
+    } else if (!isHighVol && isHighMargin) {
+      quadrant = 'Puzzle';
+      quadrant_action = 'Underpromoted Gem — High margin but low volume. Feature on homepage and run flash discounts';
+      price_elasticity_recommendation = 'Opportunity · Create discounted 2-in-1 combo or offer promo voucher to spur initial trial';
+      puzzlesCount++;
+    } else {
+      quadrant = 'Dog';
+      quadrant_action = 'Operational Drag — Low popularity & thin net profit. Review for pruning to simplify kitchen prep';
+      price_elasticity_recommendation = 'Rationalize · Remove from online platforms if prep requires unique perishable ingredients';
+      dogsCount++;
+    }
+
+    return {
+      ...it,
+      quadrant,
+      quadrant_action,
+      price_elasticity_recommendation,
+    };
+  });
+
+  return {
+    items,
+    summary: {
+      totalItemsCount: items.length,
+      starsCount,
+      plowhorsesCount,
+      puzzlesCount,
+      dogsCount,
+      totalUnitsSold,
+      totalGrossRevenue,
+      totalNetContributionRp,
+      avgNetContributionMarginPct,
+      avgVolumeBenchmark,
+      avgMarginBenchmarkRp,
+    },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENHANCEMENT 2: HOURLY LABOR EFFICIENCY & SPLH (SALES PER LABOR HOUR)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getHourlyLaborEfficiency(
+  filters?: QueryFilters
+): Promise<HourlyLaborEfficiencyReport> {
+  const whereOrders = buildWhereClause(filters, 'o');
+  const branchFilter = (filters?.branch || 'all').toLowerCase();
+
+  // 1. Hourly orders query
+  const orderRows = await runQuery<{
+    hour_of_day: number;
+    order_count: number;
+    gross_gmv: number;
+    net_payout: number;
+    avg_prep_time_min: number;
+    sla_breaches: number;
+  }>(`
+    SELECT
+      CAST(EXTRACT(HOUR FROM o.created_at) AS INTEGER) AS hour_of_day,
+      COUNT(*) AS order_count,
+      COALESCE(SUM(o.gross_amount), 0) AS gross_gmv,
+      COALESCE(SUM(o.net_payout), 0) AS net_payout,
+      COALESCE(ROUND(AVG(o.prep_time_minutes)::numeric, 1), 0) AS avg_prep_time_min,
+      COALESCE(SUM(CASE WHEN o.kpt_sla_breach = true THEN 1 ELSE 0 END), 0) AS sla_breaches
+    FROM fact_orders o
+    WHERE ${whereOrders} AND o.created_at IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1 ASC;
+  `);
+
+  const orderMap = new Map<number, typeof orderRows[0]>();
+  for (const r of orderRows) {
+    orderMap.set(Number(r.hour_of_day), r);
+  }
+
+  // 2. Attendance active kru query per hour
+  // Find distinct operating days in date range to calculate average daily staffing per hour
+  const avgHourlyStaffMap = new Map<number, number>();
+  let hourlyRateRp = 14500; // default estimated kru wage per hour (~Rp 115.000 / 8 hrs)
+
+  try {
+    const attClause =
+      branchFilter === 'kemang'
+        ? `AND LOWER(outlet) LIKE '%kemang%'`
+        : branchFilter === 'greenville'
+        ? `AND LOWER(outlet) LIKE '%greenville%'`
+        : '';
+
+    const attRows = await runQuery<{
+      clock_in: string | null;
+      clock_out: string | null;
+      work_date: string;
+      daily_rate: number | null;
+    }>(`
+      SELECT
+        a.clock_in,
+        a.clock_out,
+        CAST(a.work_date AS VARCHAR) AS work_date,
+        e.daily_rate
+      FROM fact_attendance a
+      LEFT JOIN dim_employees e ON LOWER(a.employee_name) = LOWER(e.employee_name)
+      WHERE 1=1 ${attClause}
+        AND a.clock_in IS NOT NULL
+        AND LENGTH(TRIM(a.clock_in)) >= 5;
+    `);
+
+    if (attRows.length > 0) {
+      const distinctDays = new Set(attRows.map((r) => r.work_date)).size || 1;
+      const hourlyStaffHoursCount = new Array(24).fill(0);
+
+      let totalRateSum = 0;
+      let countWithRate = 0;
+
+      for (const row of attRows) {
+        if (row.daily_rate && row.daily_rate > 0) {
+          totalRateSum += Number(row.daily_rate);
+          countWithRate++;
+        }
+
+        const startH = parseInt(String(row.clock_in).trim().slice(0, 2), 10);
+        let endH = 17; // default fallback
+        if (row.clock_out && String(row.clock_out).trim().length >= 5) {
+          endH = parseInt(String(row.clock_out).trim().slice(0, 2), 10);
+        } else {
+          endH = Math.min(23, startH + 9);
+        }
+
+        if (!isNaN(startH) && !isNaN(endH)) {
+          for (let h = Math.max(0, startH); h <= Math.min(23, endH); h++) {
+            hourlyStaffHoursCount[h]++;
+          }
+        }
+      }
+
+      if (countWithRate > 0) {
+        hourlyRateRp = Math.round((totalRateSum / countWithRate) / 9);
+      }
+
+      for (let h = 0; h < 24; h++) {
+        // Average active staff during this hour on an operating day
+        const avgHeadcount = Math.round((hourlyStaffHoursCount[h] / distinctDays) * 10) / 10;
+        avgHourlyStaffMap.set(h, avgHeadcount);
+      }
+    }
+  } catch (err) {
+    console.error('Error calculating attendance hourly distribution:', err);
+  }
+
+  // If no attendance data matched, provide calibrated baseline staffing model for cloud kitchen / flagship
+  if (avgHourlyStaffMap.size === 0) {
+    for (let h = 0; h < 24; h++) {
+      let baselineStaff = 0;
+      if (h >= 7 && h < 11) baselineStaff = 2.5; // Breakfast prep & opening
+      else if (h >= 11 && h < 15) baselineStaff = 4.0; // Lunch rush peak
+      else if (h >= 15 && h < 17) baselineStaff = 2.0; // Afternoon slack
+      else if (h >= 17 && h < 21) baselineStaff = 3.5; // Dinner rush
+      else if (h >= 21 && h < 22) baselineStaff = 1.5; // Closing
+      avgHourlyStaffMap.set(h, baselineStaff);
+    }
+  }
+
+  let totalLaborHours = 0;
+  let totalLaborCost = 0;
+  let totalGrossGmv = 0;
+  let peakSplhValue = 0;
+  let peakSplhHour = '12:00 - 13:00';
+  let highestStrainHour = '12:00 - 13:00';
+  let maxStrainScore = 0;
+
+  const hourlyPoints: HourlyLaborEfficiencyPoint[] = [];
+
+  for (let h = 0; h < 24; h++) {
+    const o = orderMap.get(h);
+    const orderCount = Number(o?.order_count || 0);
+    const grossGmv = Number(o?.gross_gmv || 0);
+    const netPayout = Number(o?.net_payout || 0);
+    const avgPrepTimeMin = Number(o?.avg_prep_time_min || 0);
+    const slaBreaches = Number(o?.sla_breaches || 0);
+
+    const activeStaff = avgHourlyStaffMap.get(h) || 0;
+    const estLaborCost = Math.round(activeStaff * hourlyRateRp);
+
+    totalLaborHours += activeStaff;
+    totalLaborCost += estLaborCost;
+    totalGrossGmv += grossGmv;
+
+    // SPLH: Sales per Labor Hour
+    const splh = activeStaff > 0 ? Math.round(grossGmv / activeStaff) : grossGmv;
+    const laborCostPct = grossGmv > 0 ? Number(((estLaborCost / grossGmv) * 100).toFixed(1)) : 0;
+
+    const hourLabel = `${String(h).padStart(2, '0')}:00 - ${String((h + 1) % 24).padStart(2, '0')}:00`;
+
+    if (splh > peakSplhValue && orderCount >= 3) {
+      peakSplhValue = splh;
+      peakSplhHour = hourLabel;
+    }
+
+    const strainScore = slaBreaches * 2 + (avgPrepTimeMin > 18 ? 3 : 0);
+    if (strainScore > maxStrainScore) {
+      maxStrainScore = strainScore;
+      highestStrainHour = hourLabel;
+    }
+
+    let operationalStatus: HourlyLaborEfficiencyPoint['operational_status'] = 'Optimal';
+    let recommendation = 'Kitchen capacity and staffing are well-balanced.';
+
+    if (activeStaff === 0 && orderCount === 0) {
+      operationalStatus = 'Off-Shift';
+      recommendation = 'Kitchen closed / no scheduled shift.';
+    } else if (activeStaff >= 1.5 && (grossGmv < 80000 || orderCount <= 1) && h >= 14 && h <= 17) {
+      operationalStatus = 'Overstaffed Dead-Hour';
+      recommendation = 'High labor % vs low tickets. Reallocate staff to prep/deep-clean or stag-shift.';
+    } else if ((slaBreaches >= 2 || avgPrepTimeMin >= 18) && orderCount >= 5) {
+      operationalStatus = 'Understaffed Bottleneck';
+      recommendation = 'High ticket volume causing kitchen SLA drag. Add 1 dedicated expo/pack station.';
+    } else if (laborCostPct > 35 && grossGmv > 0) {
+      operationalStatus = 'Overstaffed Dead-Hour';
+      recommendation = 'Labor drag is above 35% of GMV. Optimize shift changeover times.';
+    }
+
+    hourlyPoints.push({
+      hour_of_day: h,
+      hour_label: hourLabel,
+      order_count: orderCount,
+      gross_gmv: grossGmv,
+      net_payout: netPayout,
+      active_staff_count: activeStaff,
+      estimated_labor_cost: estLaborCost,
+      splh,
+      labor_cost_pct: laborCostPct,
+      avg_prep_time_min: avgPrepTimeMin,
+      sla_breaches: slaBreaches,
+      operational_status: operationalStatus,
+      recommendation,
+    });
+  }
+
+  const blendedSplh = totalLaborHours > 0 ? Math.round(totalGrossGmv / totalLaborHours) : 0;
+  const blendedLaborPct =
+    totalGrossGmv > 0 ? Number(((totalLaborCost / totalGrossGmv) * 100).toFixed(1)) : 0;
+
+  return {
+    hourlyPoints,
+    peakSplhHour,
+    peakSplhValue,
+    highestStrainHour,
+    totalLaborHours: Math.round(totalLaborHours * 10) / 10,
+    totalLaborCost,
+    blendedSplh,
+    blendedLaborPct,
+  };
 }
 
 

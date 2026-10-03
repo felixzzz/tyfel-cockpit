@@ -367,3 +367,68 @@ export const dimFinanceCategoryRules = pgTable('dim_finance_category_rules', {
   priority: integer('priority').default(1),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
+
+// ─── INVENTORY & AUTOMATED DEPLETION ──────────────────────────────────────────
+export const dimIngredientInventory = pgTable('dim_ingredient_inventory', {
+  ingredientId: text('ingredient_id').primaryKey(),
+  currentStock: doublePrecision('current_stock').notNull().default(0),
+  minStockThreshold: doublePrecision('min_stock_threshold').notNull().default(500),
+  reorderQty: doublePrecision('reorder_qty').notNull().default(1000),
+  baseUnit: text('base_unit').notNull().default('g'),
+  lastDepletedAt: timestamp('last_depleted_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+export const factInventoryTransactions = pgTable(
+  'fact_inventory_transactions',
+  {
+    txId: text('tx_id').primaryKey(),
+    ingredientId: text('ingredient_id').notNull(),
+    txType: text('tx_type').notNull(), // 'DEPLETION_SALE' | 'PURCHASE_RESTOCK' | 'ADJUSTMENT_WASTAGE' | 'INITIAL_COUNT'
+    changeQty: doublePrecision('change_qty').notNull(),
+    resultingStock: doublePrecision('resulting_stock').notNull(),
+    referenceId: text('reference_id'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index('idx_inv_tx_ingredient').on(table.ingredientId),
+    index('idx_inv_tx_created_at').on(table.createdAt),
+    index('idx_inv_tx_type').on(table.txType),
+  ]
+);
+
+// ─── STOCK OPNAME & VARIANCE AUDIT ────────────────────────────────────────────
+export const stockOpnameRecords = pgTable('stock_opname_records', {
+  opnameId: text('opname_id').primaryKey(),
+  branch: text('branch').notNull().default('all'),
+  conductedBy: text('conducted_by').notNull().default('Kitchen Manager'),
+  status: text('status').notNull().default('COMMITTED'), // 'DRAFT' | 'COMMITTED'
+  totalItemsCount: integer('total_items_count').notNull().default(0),
+  totalVarianceRp: doublePrecision('total_variance_rp').notNull().default(0),
+  netShrinkagePct: doublePrecision('net_shrinkage_pct').notNull().default(0),
+  notes: text('notes').default(''),
+  conductedAt: timestamp('conducted_at', { withTimezone: true }).defaultNow(),
+});
+
+export const stockOpnameItems = pgTable(
+  'stock_opname_items',
+  {
+    itemId: text('item_id').primaryKey(),
+    opnameId: text('opname_id').notNull(),
+    ingredientId: text('ingredient_id').notNull(),
+    systemStock: doublePrecision('system_stock').notNull().default(0),
+    actualCount: doublePrecision('actual_count').notNull().default(0),
+    varianceQty: doublePrecision('variance_qty').notNull().default(0),
+    unitCost: doublePrecision('unit_cost').notNull().default(0),
+    varianceValueRp: doublePrecision('variance_value_rp').notNull().default(0),
+    variancePct: doublePrecision('variance_pct').notNull().default(0),
+    varianceType: text('variance_type').notNull().default('OK'), // 'SHRINKAGE_SPILLAGE' | 'PORTION_VARIANCE' | 'SURPLUS' | 'OK'
+    notes: text('notes').default(''),
+  },
+  (table) => [
+    index('idx_opname_items_opname').on(table.opnameId),
+    index('idx_opname_items_ing').on(table.ingredientId),
+  ]
+);
+

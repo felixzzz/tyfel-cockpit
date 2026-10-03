@@ -1,7 +1,6 @@
 // Tyfel Hub · Financial Statement & Bank Reconciliation Engine
 import fs from 'fs';
 import path from 'path';
-import { PDFParse } from 'pdf-parse';
 import { invalidateQueryCache, runQuery } from './duckdb';
 import {
   ParsedBankStatement,
@@ -219,6 +218,57 @@ export interface FinancialStatementReport {
     opex: number;
     netProfit: number;
   }[];
+}
+
+export interface SmartReconciliationMatch {
+  matchId: string;
+  txId: string;
+  txDate: string;
+  bankName: string;
+  description: string;
+  bankAmount: number;
+  expectedSource: string;
+  expectedDate: string;
+  expectedAmount: number;
+  varianceRp: number;
+  variancePct: number;
+  confidence: 'PERFECT' | 'HIGH_PROBABLE' | 'TIMING_LAG';
+  notes: string;
+}
+
+export interface UnmatchedBankDeposit {
+  txId: string;
+  txDate: string;
+  bankName: string;
+  description: string;
+  amount: number;
+  category: string;
+  subcategory: string;
+}
+
+export interface UnmatchedPosPayout {
+  date: string;
+  provider: string;
+  brand: string;
+  orderCount: number;
+  expectedNetPayout: number;
+  status: 'PENDING_BANK_DEPOSIT' | 'LEAKAGE_RISK';
+}
+
+export interface SmartBankReconciliationReport {
+  summary: {
+    totalBankCredits: number;
+    reconciledAmount: number;
+    reconciliationRate: number;
+    matchedCount: number;
+    unmatchedBankCount: number;
+    unmatchedBankAmount: number;
+    unmatchedPosCount: number;
+    unmatchedPosAmount: number;
+  };
+  matches: SmartReconciliationMatch[];
+  unmatchedBank: UnmatchedBankDeposit[];
+  unmatchedPos: UnmatchedPosPayout[];
 }
 
 export async function getFinancialStatementReport(filters?: {
@@ -613,6 +663,7 @@ export async function reseedBankStatements(force: boolean = false): Promise<void
   const bcaJulyPdf = path.join(process.cwd(), 'data', 'bank_statements', 'BCA_Mutasi_Juli_2026.pdf');
   if (fs.existsSync(bcaJulyPdf)) {
     try {
+      const { PDFParse } = await import('pdf-parse');
       const buf = fs.readFileSync(bcaJulyPdf);
       const parser = new (PDFParse as any)({ data: buf });
       const parsed = await parser.getText();
@@ -627,6 +678,7 @@ export async function reseedBankStatements(force: boolean = false): Promise<void
   const paninAugPdf = path.join(process.cwd(), 'data', 'bank_statements', 'Panin_Mutasi_Agustus_2026.pdf');
   if (fs.existsSync(paninAugPdf)) {
     try {
+      const { PDFParse } = await import('pdf-parse');
       const buf = fs.readFileSync(paninAugPdf);
       const parser = new (PDFParse as any)({ data: buf });
       const parsed = await parser.getText();
@@ -643,3 +695,236 @@ export async function reseedBankStatements(force: boolean = false): Promise<void
 async function seedIfEmpty(): Promise<void> {
   await reseedBankStatements(false);
 }
+
+export async function getSmartBankReconciliation(filters?: {
+  bank?: string;
+  period?: string;
+}): Promise<SmartBankReconciliationReport> {
+  await ensureFinanceSchema();
+  await seedIfEmpty();
+
+  // 1. Fetch bank credits (inflows)
+  const bankWhere: string[] = ["tx_type = 'CR'", "category_type = 'REVENUE'"];
+  if (filters?.bank && filters.bank !== 'all') {
+    bankWhere.push(`bank_name = '${filters.bank}'`);
+  }
+  if (filters?.period && filters.period !== 'all') {
+    bankWhere.push(`strftime(tx_date, '%Y-%m') = '${filters.period}'`);
+  }
+
+  const bankRows = await runQuery<{
+    tx_id: string;
+    tx_date: string;
+    bank_name: string;
+    description: string;
+    amount: number;
+    category: string;
+    subcategory: string;
+  }>(`
+    SELECT
+      tx_id,
+      strftime(tx_date, '%Y-%m-%d') as tx_date,
+      bank_name,
+      description,
+      amount,
+      category,
+      subcategory
+    FROM fact_bank_transactions
+    WHERE ${bankWhere.join(' AND ')}
+    ORDER BY tx_date DESC, amount DESC;
+  `);
+
+  // 2. Fetch daily POS settlement batches
+  const posRows = await runQuery<{
+    dt: string;
+    provider: string;
+    brand: string;
+    order_count: number;
+    expected_net_payout: number;
+  }>(`
+    SELECT
+      strftime(created_at, '%Y-%m-%d') as dt,
+      provider,
+      brand,
+      COUNT(*) as order_count,
+      ROUND(SUM(net_payout)::numeric, 0) as expected_net_payout
+    FROM fact_orders
+    WHERE created_at IS NOT NULL
+    GROUP BY 1, 2, 3
+    ORDER BY dt DESC, expected_net_payout DESC;
+  `);
+
+  // 3. Fetch catering package payments
+  const cateringRows = await runQuery<{
+    package_id: string;
+    customer_name: string;
+    start_date: string;
+    total_amount: number;
+    payment_status: string;
+  }>(`
+    SELECT
+      p.package_id,
+      c.customer_name,
+      p.start_date,
+      ROUND((p.total_boxes * p.price_per_box)::numeric, 0) as total_amount,
+      p.payment_status
+    FROM catering_packages p
+    JOIN catering_customers c ON p.customer_id = c.customer_id
+    ORDER BY p.start_date DESC;
+  `);
+
+  const matches: SmartReconciliationMatch[] = [];
+  const unmatchedBank: UnmatchedBankDeposit[] = [];
+  const matchedPosKeys = new Set<string>();
+  const matchedCateringKeys = new Set<string>();
+
+  let totalBankCredits = 0;
+  let reconciledAmount = 0;
+
+  for (const b of bankRows) {
+    const bAmt = Number(b.amount) || 0;
+    totalBankCredits += bAmt;
+    const bDesc = (b.description || '').toUpperCase();
+    const bDate = String(b.tx_date || '');
+
+    let foundMatch = false;
+
+    // Check catering match first
+    for (const c of cateringRows) {
+      const cKey = c.package_id;
+      if (matchedCateringKeys.has(cKey)) continue;
+
+      const cAmt = Number(c.total_amount) || 0;
+      const cCust = c.customer_name.toUpperCase();
+      const nameMatch = bDesc.includes(cCust) || cCust.includes(bDesc.slice(0, 8));
+      const amtDiff = Math.abs(bAmt - cAmt);
+
+      if ((nameMatch && amtDiff < 50000) || amtDiff < 500) {
+        matchedCateringKeys.add(cKey);
+        foundMatch = true;
+        reconciledAmount += bAmt;
+
+        matches.push({
+          matchId: `M-CAT-${b.tx_id}`,
+          txId: b.tx_id,
+          txDate: bDate,
+          bankName: b.bank_name,
+          description: b.description,
+          bankAmount: bAmt,
+          expectedSource: `Catering Invoice: ${c.customer_name} (${c.package_id})`,
+          expectedDate: c.start_date,
+          expectedAmount: cAmt,
+          varianceRp: bAmt - cAmt,
+          variancePct: cAmt > 0 ? Math.round(((bAmt - cAmt) / cAmt) * 1000) / 10 : 0,
+          confidence: amtDiff < 500 ? 'PERFECT' : 'HIGH_PROBABLE',
+          notes: `Direct customer bank transfer verified against catering subscription.`,
+        });
+        break;
+      }
+    }
+
+    if (foundMatch) continue;
+
+    // Check POS daily settlement match
+    for (const p of posRows) {
+      const pKey = `${p.dt}-${p.provider}-${p.brand}`;
+      if (matchedPosKeys.has(pKey)) continue;
+
+      const pAmt = Number(p.expected_net_payout) || 0;
+      const amtDiff = Math.abs(bAmt - pAmt);
+      const pctDiff = pAmt > 0 ? amtDiff / pAmt : 1;
+
+      // Check provider keyword alignment
+      const pName = (p.provider || '').toUpperCase();
+      const isVisionetOvo = (pName.includes('OVO') || pName.includes('QRIS')) && bDesc.includes('VISIONET');
+      const isGoPay = pName.includes('GOFOOD') && (bDesc.includes('GOPAY') || bDesc.includes('DOMPET') || bDesc.includes('GO-JEK'));
+      const isGrab = pName.includes('GRAB') && bDesc.includes('GRAB');
+      const isShopee = pName.includes('SHOPEE') && (bDesc.includes('AIRPAY') || bDesc.includes('SHOPEE'));
+      const isGenericCardEdc = (pName.includes('POS') || pName.includes('EDC')) && (bDesc.includes('SETTLEMENT') || bDesc.includes('EDC'));
+
+      const isProviderMatch = isVisionetOvo || isGoPay || isGrab || isShopee || isGenericCardEdc;
+
+      // Date window within +/- 2 days (standard settlement delay)
+      const dayDiff = Math.abs(new Date(bDate).getTime() - new Date(p.dt).getTime()) / (1000 * 3600 * 24);
+
+      if ((isProviderMatch && dayDiff <= 3 && pctDiff <= 0.05) || (dayDiff <= 1 && amtDiff < 2000)) {
+        matchedPosKeys.add(pKey);
+        foundMatch = true;
+        reconciledAmount += bAmt;
+
+        matches.push({
+          matchId: `M-POS-${b.tx_id}`,
+          txId: b.tx_id,
+          txDate: bDate,
+          bankName: b.bank_name,
+          description: b.description,
+          bankAmount: bAmt,
+          expectedSource: `${p.provider} Daily Payout (${p.brand})`,
+          expectedDate: p.dt,
+          expectedAmount: pAmt,
+          varianceRp: bAmt - pAmt,
+          variancePct: Math.round(pctDiff * 1000) / 10,
+          confidence: amtDiff < 1000 ? 'PERFECT' : dayDiff > 1 ? 'TIMING_LAG' : 'HIGH_PROBABLE',
+          notes: dayDiff > 1
+            ? `Settled with T+${Math.round(dayDiff)} timing lag (weekend/holiday gateway batching).`
+            : `Net payout successfully reconciled against gateway remittance.`,
+        });
+        break;
+      }
+    }
+
+    if (!foundMatch) {
+      unmatchedBank.push({
+        txId: b.tx_id,
+        txDate: bDate,
+        bankName: b.bank_name,
+        description: b.description,
+        amount: bAmt,
+        category: b.category,
+        subcategory: b.subcategory,
+      });
+    }
+  }
+
+  // Identify unmatched POS settlements (potential revenue leakage or delayed gateway settlement)
+  const unmatchedPos: UnmatchedPosPayout[] = [];
+  let unmatchedPosAmount = 0;
+
+  for (const p of posRows) {
+    const pKey = `${p.dt}-${p.provider}-${p.brand}`;
+    if (!matchedPosKeys.has(pKey)) {
+      const pAmt = Number(p.expected_net_payout) || 0;
+      if (pAmt > 50000) {
+        unmatchedPosAmount += pAmt;
+        unmatchedPos.push({
+          date: p.dt,
+          provider: p.provider,
+          brand: p.brand,
+          orderCount: Number(p.order_count),
+          expectedNetPayout: pAmt,
+          status: 'PENDING_BANK_DEPOSIT',
+        });
+      }
+    }
+  }
+
+  const reconciliationRate =
+    totalBankCredits > 0 ? Math.round((reconciledAmount / totalBankCredits) * 1000) / 10 : 0;
+
+  return {
+    summary: {
+      totalBankCredits,
+      reconciledAmount,
+      reconciliationRate,
+      matchedCount: matches.length,
+      unmatchedBankCount: unmatchedBank.length,
+      unmatchedBankAmount: unmatchedBank.reduce((acc, u) => acc + u.amount, 0),
+      unmatchedPosCount: unmatchedPos.length,
+      unmatchedPosAmount,
+    },
+    matches: matches.slice(0, 100),
+    unmatchedBank: unmatchedBank.slice(0, 50),
+    unmatchedPos: unmatchedPos.slice(0, 50),
+  };
+}
+

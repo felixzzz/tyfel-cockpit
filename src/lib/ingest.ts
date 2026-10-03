@@ -506,9 +506,10 @@ async function ingestMajooPOS(
     }
   }
 
+  const uniqueOrdersToInsert = Array.from(new Map(ordersToInsert.map((o) => [o.dedup_id, o])).values());
   let existingDupes = 0;
-  for (let i = 0; i < ordersToInsert.length; i += 200) {
-    const idChunk = ordersToInsert
+  for (let i = 0; i < uniqueOrdersToInsert.length; i += 200) {
+    const idChunk = uniqueOrdersToInsert
       .slice(i, i + 200)
       .map((o) => `'${escSql(o.dedup_id)}'`)
       .join(",");
@@ -518,11 +519,11 @@ async function ingestMajooPOS(
     const orderCheckRows = await checkOrderRes.getRows();
     existingDupes += Number(orderCheckRows[0]?.[0] ?? 0);
   }
-  const newOrders = Math.max(0, ordersToInsert.length - existingDupes);
+  const newOrders = Math.max(0, uniqueOrdersToInsert.length - existingDupes);
 
   const BATCH_SIZE = 100;
-  for (let i = 0; i < ordersToInsert.length; i += BATCH_SIZE) {
-    const chunk = ordersToInsert.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < uniqueOrdersToInsert.length; i += BATCH_SIZE) {
+    const chunk = uniqueOrdersToInsert.slice(i, i + BATCH_SIZE);
     const valuesList = chunk
       .map(
         (o) => `(
@@ -573,9 +574,10 @@ async function ingestMajooPOS(
     `);
   }
 
+  const uniqueItemsToInsert = Array.from(new Map(itemsToInsert.map((it) => [it.dedup_id, it])).values());
   let existingItemDupes = 0;
-  for (let i = 0; i < itemsToInsert.length; i += 200) {
-    const idChunk = itemsToInsert
+  for (let i = 0; i < uniqueItemsToInsert.length; i += 200) {
+    const idChunk = uniqueItemsToInsert
       .slice(i, i + 200)
       .map((it) => `'${escSql(it.dedup_id)}'`)
       .join(",");
@@ -585,10 +587,10 @@ async function ingestMajooPOS(
     const itemCheckRows = await checkItemRes.getRows();
     existingItemDupes += Number(itemCheckRows[0]?.[0] ?? 0);
   }
-  const newItems = Math.max(0, itemsToInsert.length - existingItemDupes);
+  const newItems = Math.max(0, uniqueItemsToInsert.length - existingItemDupes);
 
-  for (let i = 0; i < itemsToInsert.length; i += BATCH_SIZE) {
-    const chunk = itemsToInsert.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < uniqueItemsToInsert.length; i += BATCH_SIZE) {
+    const chunk = uniqueItemsToInsert.slice(i, i + BATCH_SIZE);
     const valuesList = chunk
       .map(
         (it) => `(
@@ -881,10 +883,11 @@ async function ingestKlikitOrders(
     });
   }
 
-  const cnt = stagedOrders.length;
+  const uniqueStagedOrders = Array.from(new Map(stagedOrders.map((o) => [o.dedup_id, o])).values());
+  const cnt = uniqueStagedOrders.length;
   let existingDupes = 0;
-  for (let i = 0; i < stagedOrders.length; i += 200) {
-    const idChunk = stagedOrders
+  for (let i = 0; i < uniqueStagedOrders.length; i += 200) {
+    const idChunk = uniqueStagedOrders
       .slice(i, i + 200)
       .map((o) => `'${escSql(o.dedup_id)}'`)
       .join(",");
@@ -897,8 +900,8 @@ async function ingestKlikitOrders(
   const newOrders = Math.max(0, cnt - existingDupes);
 
   const BATCH_SIZE = 100;
-  for (let i = 0; i < stagedOrders.length; i += BATCH_SIZE) {
-    const chunk = stagedOrders.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < uniqueStagedOrders.length; i += BATCH_SIZE) {
+    const chunk = uniqueStagedOrders.slice(i, i + BATCH_SIZE);
     const valuesSql = chunk
       .map(
         (o) => `(
@@ -956,8 +959,12 @@ async function ingestKlikitOrders(
     `);
   }
 
-  const cancelledOrders = stagedOrders.filter((o) =>
-    ["CANCELLED", "CANCELED"].includes(o.status.trim().toUpperCase())
+  const cancelledOrders = Array.from(
+    new Map(
+      stagedOrders
+        .filter((o) => ["CANCELLED", "CANCELED"].includes(o.status.trim().toUpperCase()))
+        .map((o) => [o.order_id, o])
+    ).values()
   );
   for (let i = 0; i < cancelledOrders.length; i += 50) {
     const chunk = cancelledOrders.slice(i, i + 50);
@@ -1068,6 +1075,7 @@ async function ingestKlikitItems(
   }
 
   const stagedItems: StagedKlikitItem[] = [];
+  const itemOccurrences = new Map<string, number>();
   let gross = 0;
   let minTs: string | null = null;
   let maxTs: string | null = null;
@@ -1099,9 +1107,10 @@ async function ingestKlikitItems(
       if (!maxTs || createdAt > maxTs) maxTs = createdAt;
     }
 
-    const dedupId = md5Hex(
-      `${provider}:${branch}:${orderId}:${itemName}:${formatDuckDbDoubleForMd5(itemQty)}`
-    );
+    const baseKey = `${provider}:${branch}:${orderId}:${itemName}:${formatDuckDbDoubleForMd5(itemQty)}`;
+    const occ = itemOccurrences.get(baseKey) || 0;
+    itemOccurrences.set(baseKey, occ + 1);
+    const dedupId = md5Hex(occ === 0 ? baseKey : `${baseKey}:${occ}`);
 
     stagedItems.push({
       dedup_id: dedupId,

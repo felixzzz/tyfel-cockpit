@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { PDFParse } from 'pdf-parse';
 import {
   parseBcaCsv,
   parseBcaPdfText,
@@ -59,6 +58,7 @@ export async function POST(req: NextRequest) {
         const statements: ParsedBankStatement[] = [];
 
         if (isPdf) {
+          const { PDFParse } = await import('pdf-parse');
           const parser = new PDFParse({ data: buffer });
           const textResult = await parser.getText();
           const text = textResult.text;

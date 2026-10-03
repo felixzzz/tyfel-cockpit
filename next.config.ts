@@ -18,6 +18,8 @@ const nextConfig: NextConfig = {
     "@duckdb/node-bindings-linux-arm64",
     "@duckdb/node-bindings-linux-x64-musl",
     "@duckdb/node-bindings-linux-arm64-musl",
+    "pdf-parse",
+    "pdfjs-dist",
   ],
 };
 

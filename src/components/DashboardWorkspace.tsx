@@ -10,10 +10,13 @@ import type {
   TopItem,
   HourlyTrend,
   DailyTrendPoint,
+  WeeklyDayPerformancePoint,
   PrimeCostSummary,
   HeroRecipeBomSummary,
   KitchenSlaDiagnostic,
   CanceledOrdersDiagnostic,
+  GlobalMenuEngineeringReport,
+  HourlyLaborEfficiencyReport,
 } from "@/lib/queries";
 import {
   ALL_BRAND_NAV,
@@ -26,9 +29,15 @@ import {
   ChannelPieChart,
   HourlyOrderChart,
   DailyRevenueTrendChart,
+  WeeklyDayPerformanceChart,
+  BranchComparisonChart,
+  ChannelAovChart,
 } from "@/components/Charts";
 import { KitchenSlaHeatmap } from "@/components/KitchenSlaHeatmap";
+import { RealtimeKitchenAlerts } from "@/components/RealtimeKitchenAlerts";
 import { CanceledOrderInspector } from "@/components/CanceledOrderInspector";
+import { MenuEngineeringMatrix } from "@/components/MenuEngineeringMatrix";
+import { HourlyLaborEfficiencyChart } from "@/components/HourlyLaborEfficiencyChart";
 import {
   RecipeBomModal,
   type InitialRecipeBomTarget,
@@ -52,6 +61,7 @@ import {
   Wallet,
   Users,
   SlidersHorizontal,
+  Sparkles,
 } from "lucide-react";
 import type { CateringExecutiveSummary } from "@/lib/catering-invoice";
 
@@ -63,15 +73,26 @@ interface DashboardWorkspaceProps {
   topItems: TopItem[];
   hourly: HourlyTrend[];
   dailyTrend?: DailyTrendPoint[];
+  weeklyDayPerformance?: WeeklyDayPerformancePoint[];
   primeCost?: PrimeCostSummary;
   heroBoms: HeroRecipeBomSummary[];
   slaDiagnostic: KitchenSlaDiagnostic;
   cancellationDiagnostic: CanceledOrdersDiagnostic;
   cateringSummary?: CateringExecutiveSummary | null;
+  menuEngineeringReport?: GlobalMenuEngineeringReport;
+  hourlyLaborReport?: HourlyLaborEfficiencyReport;
   filterQs: string;
 }
 
-type WorkspaceTab = "overview" | "economics" | "sla" | "cancellations" | "all";
+type WorkspaceTab =
+  | "overview"
+  | "menu_engineering"
+  | "labor_efficiency"
+  | "branch_comparison"
+  | "economics"
+  | "sla"
+  | "cancellations"
+  | "all";
 
 function formatRupiah(amount: number): string {
   return new Intl.NumberFormat("id-ID", {
@@ -125,14 +146,20 @@ export function DashboardWorkspace({
   topItems,
   hourly,
   dailyTrend = [],
+  weeklyDayPerformance = [],
   primeCost,
   heroBoms,
   slaDiagnostic,
   cancellationDiagnostic,
   cateringSummary,
+  menuEngineeringReport,
+  hourlyLaborReport,
   filterQs,
 }: DashboardWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+  const [trendViewMode, setTrendViewMode] = useState<"chronological" | "weekly_day">("chronological");
+  const [channelViewMode, setChannelViewMode] = useState<"share" | "aov">("share");
+  const [outletChartMode, setOutletChartMode] = useState<"branch_compare" | "hourly_rush">("branch_compare");
   const [bomModalOpen, setBomModalOpen] = useState(false);
   const [bomModalTarget, setBomModalTarget] =
     useState<InitialRecipeBomTarget | null>(null);
@@ -144,6 +171,9 @@ export function DashboardWorkspace({
   const [pnlCogsSavePct, setPnlCogsSavePct] = useState<number>(0);
 
   const showOverview = activeTab === "overview" || activeTab === "all";
+  const showMenuEngineering = activeTab === "menu_engineering" || activeTab === "all";
+  const showLaborEfficiency = activeTab === "labor_efficiency" || activeTab === "all";
+  const showBranchComparison = activeTab === "branch_comparison" || activeTab === "all";
   const showEconomics = activeTab === "economics" || activeTab === "all";
   const showSla = activeTab === "sla" || activeTab === "all";
   const showCancellations = activeTab === "cancellations" || activeTab === "all";
@@ -378,6 +408,52 @@ export function DashboardWorkspace({
 
           <button
             type="button"
+            onClick={() => setActiveTab("menu_engineering")}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === "menu_engineering"
+                ? "bg-[var(--accent-primary)] text-white shadow-xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-2)]"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Menu Engineering (BCG)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("labor_efficiency")}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === "labor_efficiency"
+                ? "bg-[var(--accent-primary)] text-white shadow-xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-2)]"
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Labor &amp; SPLH Efficiency</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("branch_comparison")}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === "branch_comparison"
+                ? "bg-[var(--accent-primary)] text-white shadow-xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-2)]"
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Branch Comparison</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${
+                activeTab === "branch_comparison" ? "bg-white/20 text-white" : "badge-emerald"
+              }`}
+            >
+              {branches.length} Outlets
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab("economics")}
             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
               activeTab === "economics"
@@ -592,34 +668,69 @@ export function DashboardWorkspace({
           )}
 
           {/* Track 2: Daily Revenue, Net Realization & Order Velocity Time-Series */}
-          {dailyTrend.length > 0 && (
+          {(dailyTrend.length > 0 || weeklyDayPerformance.length > 0) && (
             <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <CalendarRange className="w-4 h-4 text-sky-500" />
                     <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
-                      Daily Revenue, Net Settlement &amp; Order Trajectory
+                      {trendViewMode === "chronological"
+                        ? "Daily Revenue, Net Settlement & Order Trajectory"
+                        : "Sales by Day of Week (Sun, Mon...)"}
                     </h2>
                     <span className="text-xs font-mono px-2 py-0.5 rounded badge-sky font-semibold">
-                      {dailyTrend.length} Active Days
+                      {trendViewMode === "chronological"
+                        ? `${dailyTrend.length} Active Days`
+                        : "Sun – Sat Demand Profile"}
                     </span>
-                    {deltas?.gmvDeltaPct !== null && deltas?.gmvDeltaPct !== undefined && (
+                    {trendViewMode === "chronological" && deltas?.gmvDeltaPct !== null && deltas?.gmvDeltaPct !== undefined && (
                       <span className="text-xs font-mono text-[var(--text-muted)]">
                         PoP Benchmark: {deltas.comparisonLabel}
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Day-over-day Gross GMV, Net Cash Realization, and completed order velocity across selected outlets
+                    {trendViewMode === "chronological"
+                      ? "Day-over-day Gross GMV, Net Cash Realization, and completed order velocity across selected outlets"
+                      : "Weekly day cadence analyzing peak demand, weekend surges (Fri–Sun), and average order value (AOV) from Sunday to Saturday"}
                   </p>
                 </div>
-                <span className="text-xs text-[var(--text-muted)] font-mono">
-                  Left Axis: IDR · Right Axis: Tickets
-                </span>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <div className="inline-flex p-1 rounded-xl bg-[var(--bg-surface-2)] border border-[var(--border-default)]">
+                    <button
+                      type="button"
+                      onClick={() => setTrendViewMode("chronological")}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        trendViewMode === "chronological"
+                          ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs border border-[var(--border-default)]"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      Chronological (Daily)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTrendViewMode("weekly_day")}
+                      className={`px-3 py-1 text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                        trendViewMode === "weekly_day"
+                          ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs border border-[var(--border-default)]"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <span>Day of Week Sales (Sun, Mon...)</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <DailyRevenueTrendChart data={dailyTrend} />
+              {trendViewMode === "chronological" ? (
+                <DailyRevenueTrendChart data={dailyTrend} />
+              ) : (
+                <WeeklyDayPerformanceChart data={weeklyDayPerformance} />
+              )}
             </div>
           )}
 
@@ -649,27 +760,57 @@ export function DashboardWorkspace({
               <BrandRevenueChart data={brands} />
             </div>
 
-            {/* Channel Share Donut */}
+            {/* Channel Share Donut & Channel AOV */}
             <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
-                    Channel Distribution
+                    {channelViewMode === "share" ? "Channel Distribution" : "Channel AOV (Basket Size)"}
                   </h2>
-                  <span className="text-xs font-mono px-2 py-0.5 rounded badge-neutral">
-                    Platform Split
-                  </span>
+                  <div className="inline-flex p-0.5 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-default)]">
+                    <button
+                      type="button"
+                      onClick={() => setChannelViewMode("share")}
+                      className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-md transition cursor-pointer ${
+                        channelViewMode === "share"
+                          ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs border border-[var(--border-default)]"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      Share %
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setChannelViewMode("aov")}
+                      className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-md transition cursor-pointer flex items-center gap-1 ${
+                        channelViewMode === "aov"
+                          ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs border border-[var(--border-default)]"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <span>Channel AOV</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-[var(--text-secondary)]">
-                  GrabFood vs GoFood vs Direct POS
+                  {channelViewMode === "share"
+                    ? "GrabFood vs GoFood vs Direct POS GMV Split"
+                    : "Average basket size (Gross vs Net Realized) per order across platforms"}
                 </p>
               </div>
 
-              <ChannelPieChart data={channels} />
+              {channelViewMode === "share" ? (
+                <ChannelPieChart data={channels} />
+              ) : (
+                <ChannelAovChart data={channels} />
+              )}
 
               <div className="space-y-2 border-t border-[var(--border-default)] pt-4">
                 {channels.map((ch) => {
                   const channelColor = getChannelColor(ch.provider);
+                  const aov = ch.avg_order_value || (ch.order_count > 0 ? Math.round(ch.gross_gmv / ch.order_count) : 0);
+                  const netAov = ch.net_avg_order_value || (ch.order_count > 0 ? Math.round(ch.net_payout / ch.order_count) : 0);
                   return (
                     <div
                       key={ch.provider}
@@ -680,18 +821,26 @@ export function DashboardWorkspace({
                           className="w-3 h-3 rounded-full shrink-0"
                           style={{ backgroundColor: channelColor }}
                         />
-                        <span className="text-[var(--text-primary)] font-semibold text-xs sm:text-sm">
-                          {ch.provider}
-                        </span>
+                        <div>
+                          <span className="text-[var(--text-primary)] font-semibold text-xs sm:text-sm block">
+                            {ch.provider}
+                          </span>
+                          <span className="text-[11px] font-mono text-purple-600 dark:text-purple-400 font-semibold">
+                            AOV {formatRupiah(aov)}
+                          </span>
+                        </div>
                       </div>
                       <div className="text-right font-mono text-xs">
-                        <span className="text-[var(--text-secondary)] font-medium">
-                          {ch.order_count.toLocaleString()} orders
-                        </span>
-                        <span className="text-[var(--text-muted)] mx-1.5">·</span>
-                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                          {ch.net_realization_rate}% net
-                        </span>
+                        <div className="text-[var(--text-secondary)] font-medium">
+                          <span>{ch.order_count.toLocaleString()} ord</span>
+                          <span className="text-[var(--text-muted)] mx-1">·</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                            {ch.net_realization_rate}% net
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-[var(--text-muted)]">
+                          Net basket: {formatRupiah(netAov)}
+                        </div>
                       </div>
                     </div>
                   );
@@ -705,12 +854,22 @@ export function DashboardWorkspace({
             {/* Branch Benchmark Cards */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
-                  Kitchen Outlet Benchmarks
-                </h2>
-                <span className="text-xs font-mono text-[var(--text-muted)]">
-                  2 Active Locations
-                </span>
+                <div>
+                  <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
+                    Kitchen Outlet Benchmarks
+                  </h2>
+                  <span className="text-xs text-[var(--text-secondary)]">
+                    Flagship vs Cloud Kitchen
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("branch_comparison")}
+                  className="text-xs font-mono font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <span>Full Audit</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
               </div>
 
               {branches.length === 0 ? (
@@ -718,103 +877,434 @@ export function DashboardWorkspace({
                   No branch orders found for selected filter
                 </div>
               ) : (
-                branches.map((b) => (
-                  <div
-                    key={b.branch}
-                    className={`cockpit-panel rounded-2xl p-5 space-y-3.5 relative overflow-hidden ${
-                      b.branch === "Kemang"
-                        ? "accent-bar-purple"
-                        : "accent-bar-emerald"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div
-                          className={`p-2 rounded-xl ${
-                            b.branch === "Kemang"
-                              ? "badge-purple"
-                              : "badge-emerald"
-                          }`}
-                        >
-                          <Building2 className="w-4 h-4" />
+                branches.map((b) => {
+                  const aov = b.avg_order_value || (b.order_count > 0 ? Math.round(b.gross_gmv / b.order_count) : 0);
+                  const promoBurnPct = b.gross_gmv > 0 ? Math.round((b.merchant_promo_burn / b.gross_gmv) * 100) : 0;
+                  return (
+                    <div
+                      key={b.branch}
+                      className={`cockpit-panel rounded-2xl p-5 space-y-3.5 relative overflow-hidden ${
+                        b.branch === "Kemang"
+                          ? "accent-bar-purple"
+                          : "accent-bar-emerald"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className={`p-2 rounded-xl ${
+                              b.branch === "Kemang"
+                                ? "badge-purple"
+                                : "badge-emerald"
+                            }`}
+                          >
+                            <Building2 className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+                              {b.branch}
+                            </span>
+                            <span className="text-xs text-[var(--text-secondary)] block">
+                              {b.branch === "Kemang"
+                                ? "Cloud Kitchen · Delivery Only"
+                                : "Flagship Dine-in & Delivery"}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                            {b.branch}
-                          </span>
-                          <span className="text-xs text-[var(--text-secondary)] block">
-                            {b.branch === "Kemang"
-                              ? "Cloud Kitchen · Delivery Only"
-                              : "Flagship Dine-in & Delivery"}
-                          </span>
-                        </div>
+
+                        <span className="text-xs font-mono badge-neutral px-2.5 py-1 rounded-lg">
+                          {b.order_count.toLocaleString()} orders
+                        </span>
                       </div>
 
-                      <span className="text-xs font-mono badge-neutral px-2.5 py-1 rounded-lg">
-                        {b.order_count.toLocaleString()} orders
-                      </span>
+                      <div className="grid grid-cols-3 gap-2 text-xs pt-3 border-t border-[var(--border-subtle)]">
+                        <div className="surface-well p-2">
+                          <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
+                            Gross GMV
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-[var(--text-primary)] font-mono mt-0.5 tabular-nums">
+                            {formatRupiah(b.gross_gmv)}
+                          </div>
+                        </div>
+                        <div className="surface-well p-2">
+                          <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
+                            Net Settlement
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 tabular-nums">
+                            {formatRupiah(b.net_payout)}
+                          </div>
+                        </div>
+                        <div className="surface-well p-2">
+                          <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
+                            Basket AOV
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-purple-600 dark:text-purple-400 font-mono mt-0.5 tabular-nums">
+                            {formatRupiah(aov)}
+                          </div>
+                        </div>
+                        <div className="surface-well p-2">
+                          <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
+                            Realization
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-[var(--text-primary)] font-mono mt-0.5 tabular-nums">
+                            {b.net_realization_rate}%
+                          </div>
+                        </div>
+                        <div className="surface-well p-2">
+                          <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
+                            Promo Burn
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-rose-600 dark:text-rose-400 font-mono mt-0.5 tabular-nums">
+                            {promoBurnPct}%
+                          </div>
+                        </div>
+                        <div className="surface-well p-2">
+                          <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
+                            Avg Prep / SLA
+                          </div>
+                          <div className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400 font-mono mt-0.5 tabular-nums">
+                            {b.avg_prep_time_min > 0 ? `${b.avg_prep_time_min}m` : "—"}
+                            <span className="text-[10px] text-[var(--text-muted)] font-normal ml-0.5">
+                              ({b.sla_breaches}br)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2.5 text-xs pt-3 border-t border-[var(--border-subtle)]">
-                      <div className="surface-well p-2.5">
-                        <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
-                          Gross GMV
-                        </div>
-                        <div className="text-sm font-bold text-[var(--text-primary)] font-mono mt-0.5 tabular-nums">
-                          {formatRupiah(b.gross_gmv)}
-                        </div>
-                      </div>
-                      <div className="surface-well p-2.5">
-                        <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
-                          Net Settlement
-                        </div>
-                        <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 tabular-nums">
-                          {formatRupiah(b.net_payout)}
-                        </div>
-                      </div>
-                      <div className="surface-well p-2.5">
-                        <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
-                          Net Realization
-                        </div>
-                        <div className="text-sm font-bold text-[var(--text-primary)] font-mono mt-0.5 tabular-nums">
-                          {b.net_realization_rate}%
-                        </div>
-                      </div>
-                      <div className="surface-well p-2.5">
-                        <div className="text-[var(--text-muted)] text-[10px] uppercase font-mono">
-                          Avg Prep / SLA
-                        </div>
-                        <div className="text-sm font-bold text-amber-600 dark:text-amber-400 font-mono mt-0.5 tabular-nums">
-                          {b.avg_prep_time_min > 0 ? `${b.avg_prep_time_min}m` : "—"}
-                          <span className="text-xs text-[var(--text-muted)] font-normal ml-1">
-                            ({b.sla_breaches} br)
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
-            {/* Hourly Order Velocity */}
+            {/* Outlet Performance Panel: Branch Comparison Chart vs Hourly Order Velocity */}
             <div className="lg:col-span-2 cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">
-                    Order Velocity & Rush Windows
+                    {outletChartMode === "branch_compare" ? "Branch Performance Comparison" : "Order Velocity & Rush Windows"}
                   </h2>
                   <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Peak kitchen ticket cadence (11:00–13:00 Lunch · 18:00–20:00 Dinner)
+                    {outletChartMode === "branch_compare"
+                      ? "Head-to-head comparison between Greenville Flagship and Kemang Cloud Kitchen across GMV, AOV, and prep speed"
+                      : "Peak kitchen ticket cadence (11:00–13:00 Lunch · 18:00–20:00 Dinner)"}
                   </p>
                 </div>
-                <span className="text-xs text-[var(--text-muted)] font-mono">
-                  24h Cadence
-                </span>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <div className="inline-flex p-0.5 rounded-lg bg-[var(--bg-surface-2)] border border-[var(--border-default)]">
+                    <button
+                      type="button"
+                      onClick={() => setOutletChartMode("branch_compare")}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
+                        outletChartMode === "branch_compare"
+                          ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs border border-[var(--border-default)]"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>Branch Comparison</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOutletChartMode("hourly_rush")}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
+                        outletChartMode === "hourly_rush"
+                          ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs border border-[var(--border-default)]"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>24h Rush Windows</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <HourlyOrderChart data={hourly} />
+              {outletChartMode === "branch_compare" ? (
+                <BranchComparisonChart data={branches} />
+              ) : (
+                <HourlyOrderChart data={hourly} />
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB: STRATEGIC MENU ENGINEERING (BCG MATRIX) & SKU NET CONTRIBUTION
+          ========================================================================= */}
+      {showMenuEngineering && menuEngineeringReport && (
+        <MenuEngineeringMatrix report={menuEngineeringReport} />
+      )}
+
+      {/* =========================================================================
+          TAB: HOURLY LABOR EFFICIENCY & SPLH (SALES PER LABOR HOUR)
+          ========================================================================= */}
+      {showLaborEfficiency && hourlyLaborReport && (
+        <HourlyLaborEfficiencyChart report={hourlyLaborReport} />
+      )}
+
+      {/* =========================================================================
+          TAB: DEDICATED BRANCH COMPARISON WORKBENCH
+          ========================================================================= */}
+      {showBranchComparison && (
+        <div className="space-y-6">
+          <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Building2 className="w-5 h-5 text-emerald-500" />
+                  <h2 className="text-lg font-bold text-[var(--text-primary)] tracking-tight">
+                    Branch Comparison &amp; Multi-Outlet Benchmarking
+                  </h2>
+                  <span className="text-xs font-mono px-2 py-0.5 rounded badge-emerald font-semibold">
+                    Greenville Flagship vs Kemang Cloud Kitchen
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] mt-1">
+                  Side-by-side comparative analysis of Gross GMV, Net Cash Realization, Average Order Value (AOV), Promo Burn, and Kitchen Prep SLAs
+                </p>
+              </div>
+            </div>
+
+            {/* Visual Head-to-Head Comparison Chart */}
+            <BranchComparisonChart data={branches} />
+          </div>
+
+          {/* Granular Comparative Scorecard Matrix */}
+          <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
+                  Granular Outlet Performance Scorecard
+                </h3>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                  Detailed unit economics, average basket size, and operational speed comparison
+                </p>
+              </div>
+              <span className="text-xs font-mono text-[var(--text-muted)]">
+                2 Kitchen Outlets
+              </span>
+            </div>
+
+            <div className="overflow-x-auto border border-[var(--border-default)] rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[var(--border-default)] bg-[var(--bg-surface-2)] text-[var(--text-secondary)] uppercase font-semibold text-[11px] tracking-wider font-mono">
+                    <th className="py-3 px-4">Metric Benchmark</th>
+                    <th className="py-3 px-4 text-right">
+                      <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        Greenville Flagship
+                      </span>
+                    </th>
+                    <th className="py-3 px-4 text-right">
+                      <span className="inline-flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                        <span className="w-2 h-2 rounded-full bg-purple-500" />
+                        Kemang Cloud Kitchen
+                      </span>
+                    </th>
+                    <th className="py-3 px-4 text-right">Portfolio Total</th>
+                    <th className="py-3 px-4 text-center">Variance / Advantage</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-subtle)] font-mono">
+                  {(() => {
+                    const gv = branches.find((b) => b.branch.toLowerCase().includes("greenville"));
+                    const kmg = branches.find((b) => b.branch.toLowerCase().includes("kemang"));
+                    const totalGmv = (gv?.gross_gmv || 0) + (kmg?.gross_gmv || 0);
+                    const totalNet = (gv?.net_payout || 0) + (kmg?.net_payout || 0);
+                    const totalOrders = (gv?.order_count || 0) + (kmg?.order_count || 0);
+                    const gvAov = gv?.avg_order_value || (gv?.order_count ? Math.round(gv.gross_gmv / gv.order_count) : 0);
+                    const kmgAov = kmg?.avg_order_value || (kmg?.order_count ? Math.round(kmg.gross_gmv / kmg.order_count) : 0);
+                    const overallAov = totalOrders > 0 ? Math.round(totalGmv / totalOrders) : 0;
+                    const gvPromoBurn = gv?.merchant_promo_burn || 0;
+                    const kmgPromoBurn = kmg?.merchant_promo_burn || 0;
+                    const totalPromoBurn = gvPromoBurn + kmgPromoBurn;
+                    const gvPromoPct = gv?.gross_gmv ? Number(((gvPromoBurn / gv.gross_gmv) * 100).toFixed(1)) : 0;
+                    const kmgPromoPct = kmg?.gross_gmv ? Number(((kmgPromoBurn / kmg.gross_gmv) * 100).toFixed(1)) : 0;
+
+                    return (
+                      <>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Kitchen Format
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-secondary)]">
+                            Flagship (Dine-in + Delivery)
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-secondary)]">
+                            Cloud Kitchen (Delivery Only)
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-muted)]">
+                            Multi-Format
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-neutral px-2 py-0.5 rounded text-[10px]">
+                              Complementary
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Gross GMV
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-primary)] font-bold">
+                            {formatRupiah(gv?.gross_gmv || 0)} ({totalGmv > 0 ? Math.round(((gv?.gross_gmv || 0) / totalGmv) * 100) : 0}%)
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-primary)] font-bold">
+                            {formatRupiah(kmg?.gross_gmv || 0)} ({totalGmv > 0 ? Math.round(((kmg?.gross_gmv || 0) / totalGmv) * 100) : 0}%)
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-[var(--text-primary)]">
+                            {formatRupiah(totalGmv)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-emerald px-2 py-0.5 rounded text-[10px]">
+                              Greenville leads by {totalGmv > 0 && kmg?.gross_gmv ? Math.round((((gv?.gross_gmv || 0) - kmg.gross_gmv) / kmg.gross_gmv) * 100) : 0}%
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Net Cash Realized
+                          </td>
+                          <td className="py-3 px-4 text-right text-emerald-600 dark:text-emerald-400 font-bold">
+                            {formatRupiah(gv?.net_payout || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right text-emerald-600 dark:text-emerald-400 font-bold">
+                            {formatRupiah(kmg?.net_payout || 0)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                            {formatRupiah(totalNet)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-sky px-2 py-0.5 rounded text-[10px]">
+                              {totalGmv > 0 ? ((totalNet / totalGmv) * 100).toFixed(1) : 0}% Realization
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Net Realization Rate
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="badge-emerald px-2 py-0.5 rounded font-semibold">
+                              {gv?.net_realization_rate}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="badge-emerald px-2 py-0.5 rounded font-semibold">
+                              {kmg?.net_realization_rate}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-secondary)]">
+                            {totalGmv > 0 ? ((totalNet / totalGmv) * 100).toFixed(1) : 0}% avg
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-purple px-2 py-0.5 rounded text-[10px]">
+                              Kemang +{((kmg?.net_realization_rate || 0) - (gv?.net_realization_rate || 0)).toFixed(1)}pt higher
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Average Order Value (AOV)
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-purple-600 dark:text-purple-400">
+                            {formatRupiah(gvAov)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-purple-600 dark:text-purple-400">
+                            {formatRupiah(kmgAov)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-purple-600 dark:text-purple-400">
+                            {formatRupiah(overallAov)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-emerald px-2 py-0.5 rounded text-[10px]">
+                              Greenville +{kmgAov > 0 ? (((gvAov - kmgAov) / kmgAov) * 100).toFixed(1) : 0}% basket
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Completed Orders
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-primary)]">
+                            {gv?.order_count.toLocaleString()} tickets
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-primary)]">
+                            {kmg?.order_count.toLocaleString()} tickets
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-primary)]">
+                            {totalOrders.toLocaleString()} tickets
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-neutral px-2 py-0.5 rounded text-[10px]">
+                              66% / 34% split
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Promo Burn % of GMV
+                          </td>
+                          <td className="py-3 px-4 text-right text-rose-500 font-semibold">
+                            {formatRupiah(gvPromoBurn)} ({gvPromoPct}%)
+                          </td>
+                          <td className="py-3 px-4 text-right text-rose-500 font-semibold">
+                            {formatRupiah(kmgPromoBurn)} ({kmgPromoPct}%)
+                          </td>
+                          <td className="py-3 px-4 text-right text-rose-500">
+                            {formatRupiah(totalPromoBurn)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-purple px-2 py-0.5 rounded text-[10px]">
+                              Kemang promo burn lower (-0.7pt)
+                            </span>
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-[var(--bg-surface-2)]/60">
+                          <td className="py-3 px-4 font-sans font-semibold text-[var(--text-primary)]">
+                            Avg Prep Time &amp; SLA
+                          </td>
+                          <td className="py-3 px-4 text-right text-emerald-600 dark:text-emerald-400 font-bold">
+                            {gv?.avg_prep_time_min}m ({gv?.sla_breaches} breaches)
+                          </td>
+                          <td className="py-3 px-4 text-right text-amber-600 dark:text-amber-400 font-bold">
+                            {kmg?.avg_prep_time_min}m ({kmg?.sla_breaches} breaches)
+                          </td>
+                          <td className="py-3 px-4 text-right text-[var(--text-muted)]">
+                            Flagship faster
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span className="badge-emerald px-2 py-0.5 rounded text-[10px]">
+                              Greenville {Math.abs(Number(((gv?.avg_prep_time_min || 0) - (kmg?.avg_prep_time_min || 0)).toFixed(1)))}m faster
+                            </span>
+                          </td>
+                        </tr>
+                      </>
+                    );
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Hourly Order Velocity Comparison */}
+          <div className="cockpit-panel rounded-2xl p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
+                  Portfolio Hourly Order Velocity &amp; Kitchen Rush Windows
+                </h3>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                  Aggregated 24-hour order velocity identifying peak kitchen capacity constraints
+                </p>
+              </div>
+              <span className="text-xs font-mono text-[var(--text-muted)]">
+                24h Profile
+              </span>
+            </div>
+            <HourlyOrderChart data={hourly} />
           </div>
         </div>
       )}
@@ -1508,7 +1998,12 @@ export function DashboardWorkspace({
       {/* =========================================================================
           TAB 3: KITCHEN PREP SLA HEATMAP & BOTTLENECK INSPECTOR
           ========================================================================= */}
-      {showSla && <KitchenSlaHeatmap diagnostic={slaDiagnostic} />}
+      {showSla && (
+        <div className="space-y-5">
+          <RealtimeKitchenAlerts />
+          <KitchenSlaHeatmap diagnostic={slaDiagnostic} />
+        </div>
+      )}
 
       {/* =========================================================================
           TAB 4: CANCELLED ORDER & REVENUE LEAKAGE INSPECTOR

@@ -8,11 +8,14 @@ import {
   getTopItems,
   getHourlyDistribution,
   getDailyRevenueTrend,
+  getWeeklyDayPerformance,
   getHeroRecipeBoms,
   getKitchenSlaDiagnostic,
   getCanceledOrdersDiagnostic,
   getPrimeCostSummary,
   getDataFreshness,
+  getGlobalMenuEngineering,
+  getHourlyLaborEfficiency,
   QueryFilters,
 } from "@/lib/queries";
 import { getCateringExecutiveSummary } from "@/lib/catering";
@@ -51,12 +54,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     topItems,
     hourly,
     dailyTrend,
+    weeklyDayPerformance,
     heroBoms,
     slaDiagnostic,
     cancellationDiagnostic,
     primeCost,
     freshness,
     cateringSummary,
+    menuEngineeringReport,
+    hourlyLaborReport,
   ] = await Promise.all([
     getExecutiveSummary(filters),
     getBrandBreakdown(filters),
@@ -65,12 +71,15 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     getTopItems(8, filters),
     getHourlyDistribution(filters),
     getDailyRevenueTrend(filters),
+    getWeeklyDayPerformance(filters),
     getHeroRecipeBoms(filters),
     getKitchenSlaDiagnostic(filters),
     getCanceledOrdersDiagnostic(filters),
     getPrimeCostSummary(filters),
     getDataFreshness(filters),
     getCateringExecutiveSummary(),
+    getGlobalMenuEngineering(filters),
+    getHourlyLaborEfficiency(filters),
   ]);
 
   // Construct query string for persistent brand navigation
@@ -180,11 +189,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         topItems={topItems}
         hourly={hourly}
         dailyTrend={dailyTrend}
+        weeklyDayPerformance={weeklyDayPerformance}
         primeCost={primeCost}
         heroBoms={heroBoms}
         slaDiagnostic={slaDiagnostic}
         cancellationDiagnostic={cancellationDiagnostic}
         cateringSummary={cateringSummary}
+        menuEngineeringReport={menuEngineeringReport}
+        hourlyLaborReport={hourlyLaborReport}
         filterQs={filterQs}
       />
     </main>

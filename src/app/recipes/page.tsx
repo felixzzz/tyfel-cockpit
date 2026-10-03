@@ -23,7 +23,9 @@ import {
   Check,
   X,
   TrendingUp,
+  Boxes,
 } from 'lucide-react';
+import { InventoryWorkbench } from '@/components/InventoryWorkbench';
 import type {
   RecipesCogsDashboardData,
   RecipeCogsDetailRecord,
@@ -84,7 +86,7 @@ interface EditableBomLine {
 
 export default function RecipesCogsCommandPage() {
   const [brandFilter, setBrandFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'recipes' | 'ingredients' | 'simulator'>('recipes');
+  const [activeTab, setActiveTab] = useState<'recipes' | 'ingredients' | 'simulator' | 'inventory'>('recipes');
   const [data, setData] = useState<RecipesCogsDashboardData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
@@ -748,7 +750,20 @@ export default function RecipesCogsCommandPage() {
               }`}
             >
               <Sliders className="w-3.5 h-3.5 text-amber-500" />
-              <span>3. Commodity Price-Shock Simulator</span>
+              <span>3. Price-Shock Simulator</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('inventory')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                activeTab === 'inventory'
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs border border-[var(--border-default)]'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <Boxes className="w-3.5 h-3.5 text-purple-500" />
+              <span>4. Stock & Depletion Alerts</span>
             </button>
           </div>
         </div>
@@ -2082,6 +2097,9 @@ export default function RecipesCogsCommandPage() {
           </div>
         </section>
       )}
+
+      {/* Tab 4: Raw Material Inventory & Automated BOM Depletion */}
+      {activeTab === 'inventory' && <InventoryWorkbench />}
     </main>
   );
 }

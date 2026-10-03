@@ -40,6 +40,7 @@ import {
   Cell,
 } from "recharts";
 import { FinancialStatementReport } from "@/lib/finance";
+import { SmartReconciliationWorkbench } from "@/components/SmartReconciliationWorkbench";
 
 function formatRupiah(amount: number): string {
   return new Intl.NumberFormat("id-ID", {
@@ -68,7 +69,7 @@ const PALETTE = [
 ];
 
 export default function FinancePage() {
-  const [activeTab, setActiveTab] = useState<"pnl" | "cashflow" | "statements" | "transactions" | "rules">("pnl");
+  const [activeTab, setActiveTab] = useState<"pnl" | "cashflow" | "reconciliation" | "statements" | "transactions" | "rules">("pnl");
   const [bankFilter, setBankFilter] = useState<string>("all");
   const [periodFilter, setPeriodFilter] = useState<string>("all");
   const [loading, setLoading] = useState<boolean>(true);
@@ -484,6 +485,18 @@ export default function FinancePage() {
         >
           <TrendingUp className="w-4 h-4" />
           <span>Cash Flow (Arus Kas)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("reconciliation")}
+          className={`flex items-center gap-2 px-4 py-2 border-b-2 font-medium transition whitespace-nowrap ${
+            activeTab === "reconciliation"
+              ? "border-blue-600 text-blue-600 dark:text-blue-400"
+              : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-main)]"
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4" />
+          <span>Smart Reconciliation (Bank &amp; POS)</span>
         </button>
 
         <button
@@ -1136,6 +1149,11 @@ export default function FinancePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ─── TAB: SMART RECONCILIATION (BANK & POS) ─── */}
+      {activeTab === "reconciliation" && (
+        <SmartReconciliationWorkbench bankFilter={bankFilter} periodFilter={periodFilter} />
       )}
 
       {/* ─── TAB 3: BANK STATEMENTS & UPLOAD ─── */}
