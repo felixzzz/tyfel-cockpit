@@ -10,12 +10,14 @@ import {
   Filter,
   DollarSign,
   Zap,
+  ClipboardCheck,
 } from 'lucide-react';
 import type {
   IngredientInventoryItem,
   InventoryTelemetry,
   InventoryTransactionRecord,
 } from '@/lib/inventory';
+import { StockOpnameModal } from '@/components/StockOpnameModal';
 
 function formatRp(val: number): string {
   return `Rp ${Math.round(Number(val) || 0).toLocaleString('id-ID')}`;
@@ -36,6 +38,7 @@ export function InventoryWorkbench() {
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isOpnameModalOpen, setIsOpnameModalOpen] = useState(false);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -286,14 +289,23 @@ export function InventoryWorkbench() {
               </span>
             </p>
           </div>
-          <button
-            onClick={handleRunDepletion}
-            disabled={actionBusy}
-            className="mt-3 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-600 hover:bg-purple-700 text-white shadow-sm transition disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${actionBusy ? 'animate-spin' : ''}`} />
-            <span>Sync BOM Depletion</span>
-          </button>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={handleRunDepletion}
+              disabled={actionBusy}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-600 hover:bg-purple-700 text-white shadow-sm transition disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${actionBusy ? 'animate-spin' : ''}`} />
+              <span>Sync BOM</span>
+            </button>
+            <button
+              onClick={() => setIsOpnameModalOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+            >
+              <ClipboardCheck className="w-3.5 h-3.5" />
+              <span>Stock Opname</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -673,6 +685,14 @@ export function InventoryWorkbench() {
           </div>
         </div>
       )}
+
+      {/* Physical Stock Opname Modal */}
+      <StockOpnameModal
+        isOpen={isOpnameModalOpen}
+        onClose={() => setIsOpnameModalOpen(false)}
+        ingredients={items}
+        onCommitted={fetchInventory}
+      />
     </div>
   );
 }

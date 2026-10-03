@@ -56,7 +56,6 @@ import {
   Printer,
   Download,
   Receipt,
-  FileText,
 } from "lucide-react";
 
 function formatRp(amount: number): string {
@@ -2076,6 +2075,106 @@ export default function HerboxCateringCrmPage() {
               </p>
             </div>
           </div>
+
+          {/* =========================================================================
+              PROACTIVE SUBSCRIBER RETENTION & AUTO-RENEWAL PIPELINE
+              ========================================================================= */}
+          {(() => {
+            const urgentRenewals = (data?.customers || []).filter(
+              (c) =>
+                c.renewal_urgency === "critical" ||
+                c.renewal_urgency === "soon" ||
+                c.renewal_urgency === "inactive"
+            );
+            if (urgentRenewals.length === 0) return null;
+
+            return (
+              <div className="p-5 rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-[var(--bg-surface-1)] to-transparent space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-[var(--text-primary)]">
+                        Active Retention &amp; Package Renewal Pipeline
+                      </h3>
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        {urgentRenewals.length} subscriber(s) nearing quota depletion or requiring reactivation follow-up.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {urgentRenewals.map((c) => {
+                    const isCritical = c.renewal_urgency === "critical";
+                    const isInactive = c.renewal_urgency === "inactive";
+                    return (
+                      <div
+                        key={`renewal-${c.customer_id}`}
+                        className="p-3.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] shadow-xs flex flex-col justify-between space-y-3"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold text-sm text-[var(--text-primary)]">
+                              {c.customer_name}
+                            </span>
+                            <span
+                              className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold uppercase ${
+                                isCritical
+                                  ? "badge-rose animate-pulse"
+                                  : isInactive
+                                  ? "badge-neutral"
+                                  : "badge-amber"
+                              }`}
+                            >
+                              {isCritical
+                                ? "Critical Renewal"
+                                : isInactive
+                                ? "Reactivation Needed"
+                                : "Expiring Soon"}
+                            </span>
+                          </div>
+                          <div className="text-xs text-[var(--text-secondary)] mt-1">
+                            {c.active_package?.package_name || "Completed Plan"}
+                          </div>
+                          <div className="text-[11px] text-amber-600 dark:text-amber-400 font-mono mt-1 font-semibold">
+                            {c.renewal_reason}
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const waText = generateRenewalWhatsAppText(c, getBaseUrl());
+                              const link = buildWhatsAppLink(c.phone, waText);
+                              window.open(link, "_blank");
+                            }}
+                            className="flex-1 py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition cursor-pointer"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Kirim WA Renewal</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExtendCustomerId(c.customer_id);
+                              setExtendModalOpen(true);
+                            }}
+                            className="py-1.5 px-2.5 rounded-lg bg-[var(--bg-surface-2)] hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] font-semibold text-xs border border-[var(--border-default)] transition cursor-pointer"
+                          >
+                            Extend
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredCustomers.map((cust) => (
