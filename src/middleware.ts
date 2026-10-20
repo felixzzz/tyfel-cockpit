@@ -11,6 +11,7 @@ const LEGACY_SESSION_COOKIE = 'maus_ops_session';
 const PUBLIC_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/staff',
+  '/api/health',
 ]);
 
 // Route prefixes that don't require authentication
