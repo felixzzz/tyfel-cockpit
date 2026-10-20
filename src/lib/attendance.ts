@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { DuckDBConnection, DuckDBInstance } from '@duckdb/node-api';
+import type { DuckDBConnection, DuckDBInstance } from './duckdb';
 import { getDuckDB, getRawReportsReadDirs, runQuery } from './duckdb';
 
 export interface EmployeeMaster {
@@ -641,7 +641,7 @@ export async function initializeAttendanceSchemaAndSeed(
     console.warn('[DuckDB Attendance Seed Notice]', err);
   } finally {
     try {
-      conn.closeSync();
+      conn.closeSync?.();
     } catch {
       // ignore
     }
@@ -800,7 +800,7 @@ async function ensurePayrollPaymentStatusTable(): Promise<void> {
     globalForAttendance.__fnbPayrollPaymentStatusTableEnsured = true;
   } finally {
     try {
-      conn.closeSync();
+      conn.closeSync?.();
     } catch {
       // ignore
     }
@@ -1611,7 +1611,7 @@ export async function updatePayrollPaymentStatus(payload: {
     await conn.run(`CHECKPOINT;`);
   } finally {
     try {
-      conn.closeSync();
+      conn.closeSync?.();
     } catch {
       // ignore
     }
@@ -1807,7 +1807,7 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
     await conn.run(`CHECKPOINT;`);
   } finally {
     try {
-      conn.closeSync();
+      conn.closeSync?.();
     } catch {
       // ignore
     }

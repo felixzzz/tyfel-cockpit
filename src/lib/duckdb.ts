@@ -2,7 +2,24 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import postgres from 'postgres';
-import type { DuckDBInstance, DuckDBConnection } from '@duckdb/node-api';
+
+export interface DuckDBQueryResult {
+  columnNames: () => string[];
+  getRows: () => Promise<unknown[][]>;
+}
+
+export interface DuckDBConnection {
+  run: (sql: string) => Promise<DuckDBQueryResult>;
+  closeSync: () => void;
+}
+
+export interface DuckDBInstance {
+  connect: () => Promise<DuckDBConnection>;
+}
+
+export type DbQueryResult = DuckDBQueryResult;
+export type DbConnection = DuckDBConnection;
+export type DbInstance = DuckDBInstance;
 
 const BUNDLED_DB_PATH = path.join(process.cwd(), 'data', 'fnb_analytics.duckdb');
 const LEGACY_PARENT_DB_PATH = path.resolve(process.cwd(), '../data/fnb_analytics.duckdb');
@@ -880,11 +897,11 @@ export const MASTER_RECIPES: SeedRecipeRow[] = [
   },
 ];
 
-function sqlEscape(val: string): string {
+export function sqlEscape(val: string): string {
   return val.replace(/'/g, "''");
 }
 
-async function initializeSchemaAndSeed(db: DuckDBInstance, isRemoteHttp = false): Promise<void> {
+export async function initializeSchemaAndSeed(db: DuckDBInstance, isRemoteHttp = false): Promise<void> {
   const conn = await db.connect();
   try {
     await conn.run(`
@@ -1119,7 +1136,7 @@ async function initializeSchemaAndSeed(db: DuckDBInstance, isRemoteHttp = false)
   }
 }
 
-function copySeedToTarget(seedPath: string, targetPath: string): void {
+export function copySeedToTarget(seedPath: string, targetPath: string): void {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   const tmpCopyPath = `${targetPath}.${process.pid}.tmp`;
   fs.copyFileSync(seedPath, tmpCopyPath);
@@ -1474,67 +1491,9 @@ export async function getDuckDB(): Promise<DuckDBInstance> {
         return instance;
       }
 
-      const { DuckDBInstance } = await import('@duckdb/node-api');
-      let dbPath = resolveRuntimeDbPath();
-      const seedPath = getSeedDbPath();
-
-      if (!fs.existsSync(dbPath) && seedPath && seedPath !== dbPath) {
-        try {
-          copySeedToTarget(seedPath, dbPath);
-        } catch (copyErr) {
-          console.warn('[DuckDB Seed Copy] Failed copying seed DB to runtime path:', copyErr);
-        }
-      }
-
-      let instance: DuckDBInstance;
-      let isReadOnly = false;
-      try {
-        instance = await DuckDBInstance.create(dbPath);
-      } catch (err) {
-        const msg = String(err);
-        const walPath = `${dbPath}.wal`;
-        if (msg.includes('replaying WAL file') && fs.existsSync(walPath)) {
-          console.warn('[DuckDB WAL Recovery] Removing unreplayable WAL file and re-initializing:', walPath);
-          try {
-            fs.unlinkSync(walPath);
-          } catch {
-            // ignore unlink errors
-          }
-          instance = await DuckDBInstance.create(dbPath);
-        } else if (
-          msg.includes('Conflicting lock') ||
-          msg.includes('Read-only file system') ||
-          msg.includes('Cannot open file') ||
-          msg.includes('EROFS') ||
-          msg.includes('EACCES')
-        ) {
-          try {
-            const fallbackPath = path.join(TMP_DIR, `fnb_analytics_${process.pid}.duckdb`);
-            const sourceForFallback = seedPath || (fs.existsSync(dbPath) ? dbPath : null);
-            if (sourceForFallback && !fs.existsSync(fallbackPath)) {
-              copySeedToTarget(sourceForFallback, fallbackPath);
-            }
-            console.warn('[DuckDB Fallback] Using isolated writable /tmp copy:', fallbackPath);
-            dbPath = fallbackPath;
-            instance = await DuckDBInstance.create(fallbackPath);
-          } catch {
-            const roSource = seedPath || dbPath;
-            console.warn('[DuckDB Read-Only Fallback] Opening seed DB in READ_ONLY mode:', roSource);
-            isReadOnly = true;
-            instance = await DuckDBInstance.create(roSource, { access_mode: 'READ_ONLY' });
-          }
-        } else {
-          dbInitPromise = null;
-          throw err;
-        }
-      }
-      if (!isReadOnly) {
-        await initializeSchemaAndSeed(instance);
-        const { initializeAttendanceSchemaAndSeed } = await import('./attendance');
-        await initializeAttendanceSchemaAndSeed(instance);
-      }
-      dbInstance = instance;
-      return instance;
+      throw new Error(
+        'DATABASE_URL is required. Please ensure PostgreSQL/Supabase is configured in your environment or .env.local.'
+      );
     })();
   }
   return dbInitPromise;

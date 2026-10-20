@@ -1,4 +1,4 @@
-import type { DuckDBInstance } from '@duckdb/node-api';
+import type { DuckDBInstance } from './duckdb';
 import { getDuckDB, invalidateQueryCache, runQuery } from './duckdb';
 
 export type CateringProgramCategory =
