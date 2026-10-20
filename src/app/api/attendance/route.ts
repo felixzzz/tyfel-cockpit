@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import { requireAuth } from '@/lib/session';
 import {
   getAttendanceCycleReport,
   updateEmployeeAndPayrollAdjustment,
@@ -9,6 +10,9 @@ import {
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAuth(request, 'attendance');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const { searchParams } = new URL(request.url);
     const periodKey = searchParams.get('period') || undefined;
@@ -22,6 +26,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth(request, 'attendance');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = await request.json();
 

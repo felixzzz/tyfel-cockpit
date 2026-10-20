@@ -2,7 +2,8 @@
 // Uses `jose` for JWT (Edge-compatible) and `bcryptjs` for password hashing.
 
 import { SignJWT, jwtVerify } from 'jose';
-import type { Permission } from './permissions';
+import { NextRequest, NextResponse } from 'next/server';
+import { hasPermission, type Permission } from './permissions';
 
 export const SESSION_COOKIE = 'tyfel_ops_session';
 export const LEGACY_SESSION_COOKIE = 'maus_ops_session';
@@ -50,6 +51,60 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
   } catch {
     return null;
   }
+}
+
+export type AuthResult =
+  | { user: SessionPayload; errorResponse: null }
+  | { user: null; errorResponse: NextResponse };
+
+/**
+ * Enforces authentication and optional feature-level permission on API route handlers.
+ * Returns either `{ user, errorResponse: null }` or `{ user: null, errorResponse: NextResponse }`.
+ */
+export async function requireAuth(
+  request: NextRequest,
+  requiredPermission?: Permission
+): Promise<AuthResult> {
+  const token =
+    request.cookies.get(SESSION_COOKIE)?.value ||
+    request.cookies.get(LEGACY_SESSION_COOKIE)?.value ||
+    request.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
+
+  if (!token) {
+    return {
+      user: null,
+      errorResponse: NextResponse.json(
+        { success: false, error: 'Authentication required. Please log in.' },
+        { status: 401 }
+      ),
+    };
+  }
+
+  const session = await verifySession(token);
+  if (!session) {
+    return {
+      user: null,
+      errorResponse: NextResponse.json(
+        { success: false, error: 'Session expired or invalid. Please log in again.' },
+        { status: 401 }
+      ),
+    };
+  }
+
+  if (requiredPermission && !hasPermission(session.permissions, requiredPermission, session.role)) {
+    return {
+      user: null,
+      errorResponse: NextResponse.json(
+        {
+          success: false,
+          error: `Forbidden: '${requiredPermission}' permission required.`,
+        },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { user: session, errorResponse: null };
 }
 
 // ─── Legacy passcode still accepted during migration ──────────────────────────

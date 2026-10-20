@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import { requireAuth } from '@/lib/session';
 import {
   getCateringCrmDashboard,
   updateCateringSlot,
@@ -14,6 +15,9 @@ import {
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAuth(request, 'catering');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const { searchParams } = new URL(request.url);
     const month = searchParams.get('month') || undefined;
@@ -31,6 +35,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAuth(request, 'catering');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = await request.json();
     const type = String(body.type || body.action_type || 'update_slot');

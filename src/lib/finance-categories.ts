@@ -285,7 +285,7 @@ export const DEFAULT_RULES: CategorizationRule[] = [
   },
   {
     id: 'rule_eggs',
-    pattern: /NG\s+NJUK\s+TJIN|TELOR/i,
+    pattern: /NG\s+NJUK\s+TJIN|TELOR|TELUR/i,
     category: 'Raw Materials & Ingredients',
     subcategory: 'Eggs (Telor)',
     txType: 'DB',
@@ -492,6 +492,7 @@ export function categorizeTransaction(
   txType: 'CR' | 'DB',
   _amount?: number
 ): { category: string; subcategory: string; type: FinanceCategoryType; confidence: number } {
+  void _amount;
   const clean = desc.trim();
 
   // Try matching default rules

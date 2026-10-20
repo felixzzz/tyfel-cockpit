@@ -2,9 +2,10 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
 
-const connectionString =
-  process.env.DATABASE_URL ||
-  'postgresql://postgres.vrimefznzyslagskfmsi:W32QXB4J87OpHs0a@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres';
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error('DATABASE_URL environment variable is required. Please set it in .env.local');
+}
 
 // For serverless runtimes (Next.js / Vercel), create a client with connection limits
 const globalForDb = globalThis as unknown as {

@@ -2,7 +2,7 @@
 // Runs before any page/API is rendered to enforce authentication.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { jwtVerify } from 'jose';
+import { jwtVerify } from 'jose/jwt/verify';
 
 const SESSION_COOKIE = 'tyfel_ops_session';
 const LEGACY_SESSION_COOKIE = 'maus_ops_session';

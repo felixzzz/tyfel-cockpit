@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/session';
 import {
   getFinancialStatementReport,
   getBankTransactionsList,
@@ -10,6 +11,9 @@ import { FINANCE_CATEGORIES } from '@/lib/finance-categories';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req, 'finance');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const { searchParams } = new URL(req.url);
     const view = searchParams.get('view') || 'report';
@@ -64,6 +68,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const auth = await requireAuth(req, 'finance');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = await req.json();
     const { txId, category, subcategory, applyToSimilar } = body;
@@ -91,6 +98,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req, 'finance');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = await req.json();
     const { action } = body;

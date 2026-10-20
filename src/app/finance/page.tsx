@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Landmark,
   TrendingUp,
@@ -113,7 +113,7 @@ export default function FinancePage() {
   };
 
   // Fetch Report Data
-  const fetchReport = async () => {
+  const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
       const q = new URLSearchParams();
@@ -130,10 +130,10 @@ export default function FinancePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [bankFilter, periodFilter]);
 
   // Fetch Transactions List
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     setTxLoading(true);
     try {
       const q = new URLSearchParams();
@@ -157,17 +157,17 @@ export default function FinancePage() {
     } finally {
       setTxLoading(false);
     }
-  };
+  }, [bankFilter, periodFilter, txCategoryFilter, txTypeFilter, txSearch, txLimit, txPage]);
 
   useEffect(() => {
     fetchReport();
-  }, [bankFilter, periodFilter]);
+  }, [fetchReport]);
 
   useEffect(() => {
     if (activeTab === "transactions") {
       fetchTransactions();
     }
-  }, [activeTab, bankFilter, periodFilter, txCategoryFilter, txTypeFilter, txPage, txSearch]);
+  }, [activeTab, fetchTransactions]);
 
   // Handle Category Save
   const handleSaveCategory = async () => {

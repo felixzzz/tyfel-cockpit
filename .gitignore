@@ -45,3 +45,11 @@ next-env.d.ts
 # database (DuckDB binary files)
 *.duckdb
 *.duckdb.wal
+/data/*.duckdb
+/data/*.duckdb.wal
+
+# automation debug screenshots & artifacts
+/data/raw/*.png
+/reports/raw/*.png
+*.png.tmp
+*.csv.tmp

@@ -426,6 +426,56 @@ export interface StockOpnameAuditRecord {
   items: StockOpnameItemAudit[];
 }
 
+export function computeStockVarianceItem(params: {
+  ingredientId: string;
+  ingredientName: string;
+  baseUnit: string;
+  category: string;
+  systemStock: number;
+  actualCount: number;
+  purchasePrice: number;
+  purchaseQty: number;
+  notes?: string;
+}): StockOpnameItemAudit {
+  const systemStock = Number(params.systemStock || 0);
+  const actualCount = Math.max(0, Number(params.actualCount));
+  const varianceQty = actualCount - systemStock;
+
+  const purchasePrice = Number(params.purchasePrice || 0);
+  const purchaseQty = Number(params.purchaseQty || 1000);
+  const unitCost = purchaseQty > 0 ? purchasePrice / purchaseQty : 0;
+  const varianceValueRp = Math.round(varianceQty * unitCost);
+
+  const variancePct =
+    systemStock > 0 ? Number(((varianceQty / systemStock) * 100).toFixed(1)) : 0;
+
+  let varianceType: StockOpnameItemAudit['varianceType'] = 'OK';
+  if (varianceQty < 0) {
+    if (Math.abs(variancePct) > 10 || Math.abs(varianceValueRp) > 50000) {
+      varianceType = 'SHRINKAGE_SPILLAGE';
+    } else {
+      varianceType = 'PORTION_VARIANCE';
+    }
+  } else if (varianceQty > 0) {
+    varianceType = 'SURPLUS';
+  }
+
+  return {
+    ingredientId: params.ingredientId,
+    ingredientName: params.ingredientName,
+    baseUnit: params.baseUnit,
+    category: params.category,
+    systemStock,
+    actualCount,
+    varianceQty,
+    unitCost,
+    varianceValueRp,
+    variancePct,
+    varianceType,
+    notes: params.notes || '',
+  };
+}
+
 let opnameTablesReady = false;
 
 export async function ensureOpnameTablesInitialized(): Promise<void> {
@@ -438,8 +488,8 @@ export async function ensureOpnameTablesInitialized(): Promise<void> {
       conducted_by VARCHAR NOT NULL DEFAULT 'Kitchen Manager',
       status VARCHAR NOT NULL DEFAULT 'COMMITTED',
       total_items_count INTEGER DEFAULT 0,
-      total_variance_rp DOUBLE DEFAULT 0,
-      net_shrinkage_pct DOUBLE DEFAULT 0,
+      total_variance_rp DOUBLE PRECISION DEFAULT 0,
+      net_shrinkage_pct DOUBLE PRECISION DEFAULT 0,
       notes VARCHAR DEFAULT '',
       conducted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -448,12 +498,12 @@ export async function ensureOpnameTablesInitialized(): Promise<void> {
       item_id VARCHAR PRIMARY KEY,
       opname_id VARCHAR NOT NULL,
       ingredient_id VARCHAR NOT NULL,
-      system_stock DOUBLE DEFAULT 0,
-      actual_count DOUBLE DEFAULT 0,
-      variance_qty DOUBLE DEFAULT 0,
-      unit_cost DOUBLE DEFAULT 0,
-      variance_value_rp DOUBLE DEFAULT 0,
-      variance_pct DOUBLE DEFAULT 0,
+      system_stock DOUBLE PRECISION DEFAULT 0,
+      actual_count DOUBLE PRECISION DEFAULT 0,
+      variance_qty DOUBLE PRECISION DEFAULT 0,
+      unit_cost DOUBLE PRECISION DEFAULT 0,
+      variance_value_rp DOUBLE PRECISION DEFAULT 0,
+      variance_pct DOUBLE PRECISION DEFAULT 0,
       variance_type VARCHAR DEFAULT 'OK',
       notes VARCHAR DEFAULT ''
     );
@@ -512,66 +562,43 @@ export async function submitStockOpnameAudit(params: {
     const ing = ingMap.get(c.ingredientId);
     if (!ing) continue;
 
-    const systemStock = Number(ing.current_stock || 0);
-    const actualCount = Math.max(0, Number(c.actualCount));
-    const varianceQty = actualCount - systemStock;
-
-    const purchasePrice = Number(ing.purchase_price || 0);
-    const purchaseQty = Number(ing.purchase_qty || 1000);
-    const unitCost = purchaseQty > 0 ? purchasePrice / purchaseQty : 0;
-    const varianceValueRp = Math.round(varianceQty * unitCost);
-
-    const variancePct =
-      systemStock > 0 ? Number(((varianceQty / systemStock) * 100).toFixed(1)) : 0;
-
-    totalVarianceRp += varianceValueRp;
-    totalSystemValue += systemStock * unitCost;
-
-    let varianceType: StockOpnameItemAudit['varianceType'] = 'OK';
-    if (varianceQty < 0) {
-      if (Math.abs(variancePct) > 10 || Math.abs(varianceValueRp) > 50000) {
-        varianceType = 'SHRINKAGE_SPILLAGE';
-        highRiskCount++;
-      } else {
-        varianceType = 'PORTION_VARIANCE';
-      }
-    } else if (varianceQty > 0) {
-      varianceType = 'SURPLUS';
-    }
-
-    const auditItem: StockOpnameItemAudit = {
+    const auditItem = computeStockVarianceItem({
       ingredientId: ing.ingredient_id,
       ingredientName: String(ing.ingredient_name || ing.ingredient_id),
       baseUnit: String(ing.base_unit),
       category: String(ing.category),
-      systemStock,
-      actualCount,
-      varianceQty,
-      unitCost,
-      varianceValueRp,
-      variancePct,
-      varianceType,
-      notes: c.notes || '',
-    };
+      systemStock: Number(ing.current_stock || 0),
+      actualCount: c.actualCount,
+      purchasePrice: Number(ing.purchase_price || 0),
+      purchaseQty: Number(ing.purchase_qty || 1000),
+      notes: c.notes,
+    });
+
+    totalVarianceRp += auditItem.varianceValueRp;
+    totalSystemValue += auditItem.systemStock * auditItem.unitCost;
+    if (auditItem.varianceType === 'SHRINKAGE_SPILLAGE') {
+      highRiskCount++;
+    }
+
     auditItems.push(auditItem);
 
     // Update actual stock in dim_ingredient_inventory
     await runQuery(`
       INSERT INTO dim_ingredient_inventory (ingredient_id, current_stock, updated_at)
-      VALUES ('${ing.ingredient_id}', ${actualCount}, CURRENT_TIMESTAMP)
+      VALUES ('${ing.ingredient_id}', ${auditItem.actualCount}, CURRENT_TIMESTAMP)
       ON CONFLICT (ingredient_id) DO UPDATE
-      SET current_stock = ${actualCount}, updated_at = CURRENT_TIMESTAMP;
+      SET current_stock = ${auditItem.actualCount}, updated_at = CURRENT_TIMESTAMP;
 
       INSERT INTO fact_inventory_transactions (
         tx_id, ingredient_id, tx_type, change_qty, resulting_stock, reference_id, notes, created_at
       ) VALUES (
         'TX-OPNAME-${ing.ingredient_id}-${Date.now()}',
         '${ing.ingredient_id}',
-        '${varianceQty < 0 ? 'ADJUSTMENT_WASTAGE' : 'INITIAL_COUNT'}',
-        ${varianceQty},
-        ${actualCount},
+        '${auditItem.varianceQty < 0 ? 'ADJUSTMENT_WASTAGE' : 'INITIAL_COUNT'}',
+        ${auditItem.varianceQty},
+        ${auditItem.actualCount},
         '${opnameId}',
-        'Stock opname variance reconciliation: ${varianceType} (${varianceQty > 0 ? '+' : ''}${varianceQty} ${ing.base_unit})',
+        'Stock opname variance reconciliation: ${auditItem.varianceType} (${auditItem.varianceQty > 0 ? '+' : ''}${auditItem.varianceQty} ${ing.base_unit})',
         CURRENT_TIMESTAMP
       );
 
@@ -582,13 +609,13 @@ export async function submitStockOpnameAudit(params: {
         'OPN-ITM-${ing.ingredient_id}-${Date.now()}',
         '${opnameId}',
         '${ing.ingredient_id}',
-        ${systemStock},
-        ${actualCount},
-        ${varianceQty},
-        ${unitCost},
-        ${varianceValueRp},
-        ${variancePct},
-        '${varianceType}',
+        ${auditItem.systemStock},
+        ${auditItem.actualCount},
+        ${auditItem.varianceQty},
+        ${auditItem.unitCost},
+        ${auditItem.varianceValueRp},
+        ${auditItem.variancePct},
+        '${auditItem.varianceType}',
         '${(c.notes || '').replace(/'/g, "''")}'
       );
     `);

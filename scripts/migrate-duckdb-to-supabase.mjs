@@ -19,10 +19,11 @@ if (fs.existsSync(envLocalPath)) {
   }
 }
 
-const dbUrl =
-  process.env.DIRECT_URL ||
-  process.env.DATABASE_URL ||
-  'postgresql://postgres.vrimefznzyslagskfmsi:W32QXB4J87OpHs0a@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres';
+const dbUrl = process.env.DIRECT_URL || process.env.DATABASE_URL;
+if (!dbUrl) {
+  console.error('❌ DATABASE_URL or DIRECT_URL environment variable is required.');
+  process.exit(1);
+}
 
 const localDbPath = path.resolve(process.cwd(), 'data', 'fnb_analytics.duckdb');
 if (!fs.existsSync(localDbPath)) {

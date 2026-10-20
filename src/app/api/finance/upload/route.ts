@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import { requireAuth } from '@/lib/session';
 import {
   parseBcaCsv,
   parseBcaPdfText,
@@ -26,6 +27,9 @@ export interface UploadResult {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req, 'finance');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const formData = await req.formData();
     const files = formData.getAll('files') as File[];

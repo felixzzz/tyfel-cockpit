@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import { requireAuth } from '@/lib/session';
 import {
   getCatalogRecipesAndUnmappedSkus,
   upsertRecipeBom,
@@ -10,6 +11,9 @@ import {
 } from '@/lib/queries';
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAuth(req, 'recipes');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const { searchParams } = new URL(req.url);
     const brand = searchParams.get('brand') || undefined;
@@ -25,6 +29,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req, 'recipes');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = (await req.json()) as Partial<UpsertRecipeBomInput> & {
       action?: string;
@@ -87,6 +94,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const auth = await requireAuth(req, 'recipes');
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const { searchParams } = new URL(req.url);
     const mode = searchParams.get('mode');

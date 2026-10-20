@@ -647,26 +647,29 @@ export function brandToSlug(brand: string): string {
   return brand.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
 export function buildDateAndBranchFilterClause(filters?: QueryFilters, tablePrefix: string = ''): string {
   const p = tablePrefix ? `${tablePrefix}.` : '';
   const clauses: string[] = ['1=1'];
 
-  if (filters?.branch && filters.branch.toLowerCase() !== 'all') {
-    const escapedBranch = filters.branch.toLowerCase().replace(/'/g, "''");
-    clauses.push(`LOWER(${p}branch) = '${escapedBranch}'`);
+  if (filters?.branch) {
+    const cleanBranch = filters.branch.trim().replace(/--+/g, ' ').replace(/[^a-zA-Z0-9_\s]/g, '').trim().toLowerCase();
+    if (cleanBranch && cleanBranch !== 'all') {
+      clauses.push(`LOWER(${p}branch) = '${cleanBranch}'`);
+    }
   }
 
-  if (filters?.from && filters?.to) {
-    const escapedFrom = filters.from.replace(/'/g, "''");
-    const escapedTo = filters.to.replace(/'/g, "''");
-    clauses.push(`CAST(${p}created_at AS DATE) >= '${escapedFrom}'`);
-    clauses.push(`CAST(${p}created_at AS DATE) <= '${escapedTo}'`);
-  } else if (filters?.from) {
-    const escapedFrom = filters.from.replace(/'/g, "''");
-    clauses.push(`CAST(${p}created_at AS DATE) >= '${escapedFrom}'`);
-  } else if (filters?.to) {
-    const escapedTo = filters.to.replace(/'/g, "''");
-    clauses.push(`CAST(${p}created_at AS DATE) <= '${escapedTo}'`);
+  const validFrom = filters?.from && DATE_REGEX.test(filters.from.trim()) ? filters.from.trim() : null;
+  const validTo = filters?.to && DATE_REGEX.test(filters.to.trim()) ? filters.to.trim() : null;
+
+  if (validFrom && validTo) {
+    clauses.push(`CAST(${p}created_at AS DATE) >= '${validFrom}'`);
+    clauses.push(`CAST(${p}created_at AS DATE) <= '${validTo}'`);
+  } else if (validFrom) {
+    clauses.push(`CAST(${p}created_at AS DATE) >= '${validFrom}'`);
+  } else if (validTo) {
+    clauses.push(`CAST(${p}created_at AS DATE) <= '${validTo}'`);
   } else if (filters?.range) {
     const r = filters.range.toLowerCase();
     if (r === 'today') {
