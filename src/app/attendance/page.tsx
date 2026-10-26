@@ -382,6 +382,8 @@ export default function AttendancePayrollPage() {
       const data = await res.json();
       if (data.summaries?.[0]?.message) {
         setUploadNotice(data.summaries[0].message);
+      } else if (data.errors?.[0]?.error) {
+        setUploadNotice(`Error: ${data.errors[0].error}`);
       } else {
         setUploadNotice(`Uploaded ${file.name} and refreshed attendance logs.`);
       }
@@ -1033,7 +1035,7 @@ export default function AttendancePayrollPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv"
+            accept=".csv,.xlsx,.xls"
             onChange={handleUploadAttendanceCsv}
             className="hidden"
           />
@@ -1046,7 +1048,7 @@ export default function AttendancePayrollPage() {
             <UploadCloud className="w-4 h-4" />
             {isUploadingCsv
               ? "Importing Absensi..."
-              : "Upload Laporan Absensi CSV"}
+              : "Upload Laporan Absensi (CSV / XLSX)"}
           </button>
 
           <button

@@ -3,6 +3,12 @@ import fs from "fs";
 import path from "path";
 import type { DuckDBConnection } from "./duckdb";
 import { getDuckDB, getRawReportsReadDirs, getRawReportsWriteDir } from "./duckdb";
+import {
+  isExcelFile,
+  convertExcelToCsv,
+  normalizeDateToIso,
+  parseCsvLine,
+} from "./excel-parser";
 
 export type DetectedFileType = "majoo" | "majoo_attendance" | "klikit_orders" | "klikit_items" | "unknown";
 
@@ -114,8 +120,10 @@ export function extractDateRange(content: string, fileType: DetectedFileType): {
   if (fileType === "majoo_attendance") {
     const dates: string[] = [];
     for (const line of lines) {
-      const m = line.match(/^(\d{4}-\d{2}-\d{2}),/);
-      if (m) dates.push(m[1]);
+      if (!line.trim() || line.startsWith(",,,") || line.includes("Powered by")) continue;
+      const parts = parseCsvLine(line);
+      const iso = normalizeDateToIso(parts[0]);
+      if (iso) dates.push(iso);
     }
     if (dates.length === 0) return { minDate: null, maxDate: null };
     dates.sort();
@@ -284,18 +292,35 @@ export async function processUploadedFile(
     fs.mkdirSync(writeDir, { recursive: true });
   }
 
-  const contentStr = contentBuffer.toString("utf-8");
+  let contentStr: string;
+  let isFromExcel = false;
+  let excelSheetName = "";
+
+  if (isExcelFile(fileName, contentBuffer)) {
+    const converted = convertExcelToCsv(contentBuffer);
+    contentStr = converted.csv;
+    isFromExcel = true;
+    excelSheetName = converted.sheetName;
+  } else {
+    contentStr = contentBuffer.toString("utf-8");
+  }
+
   const fileType = detectFileType(contentStr, fileName);
 
   if (fileType === "unknown") {
-    throw new Error("Unrecognized CSV format. Please upload either a Klikit aggregator export or a Majoo POS export.");
+    throw new Error(
+      isFromExcel
+        ? `Unrecognized Excel spreadsheet format (Sheet: "${excelSheetName}"). Supported formats: Majoo Attendance, Majoo POS Penjualan, Klikit Orders/Items.`
+        : "Unrecognized file format. Please upload either a Klikit aggregator export or a Majoo POS / Attendance export."
+    );
   }
 
   const { minDate, maxDate } = extractDateRange(contentStr, fileType);
   const canonicalName = getCanonicalFileName(fileType, minDate, maxDate, fileName);
   const targetFilePath = path.join(writeDir, canonicalName);
 
-  fs.writeFileSync(targetFilePath, contentBuffer);
+  // Write canonical CSV to disk
+  fs.writeFileSync(targetFilePath, Buffer.from(contentStr, "utf-8"));
 
   const db = await getDuckDB();
   let conn: DuckDBConnection | null = null;
@@ -305,10 +330,11 @@ export async function processUploadedFile(
     if (fileType === "majoo_attendance") {
       const { upsertAttendanceCsvToConn } = await import("./attendance");
       const res = await upsertAttendanceCsvToConn(conn, contentStr, canonicalName);
+      const prefix = isFromExcel ? `[Excel Converted] ` : "";
       const msg =
         res.newInserted === 0 && res.totalParsed > 0
-          ? `Saved as "${canonicalName}". All ${res.totalParsed} attendance logs were already present in DuckDB (updated in place).`
-          : `Saved as "${canonicalName}". Ingested ${res.newInserted} new attendance logs (${res.updatedCount} updated) across ${res.minDate || "?"} to ${res.maxDate || "?"}.`;
+          ? `${prefix}Saved as "${canonicalName}". All ${res.totalParsed} attendance logs were already present in DuckDB (updated in place).`
+          : `${prefix}Saved as "${canonicalName}". Ingested ${res.newInserted} new attendance logs (${res.updatedCount} updated) across ${res.minDate || "?"} to ${res.maxDate || "?"}.`;
       return {
         success: true,
         fileType: "majoo_attendance",
@@ -654,37 +680,7 @@ async function ingestMajooPOS(
   };
 }
 
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let cur = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cur += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ",") {
-        result.push(cur);
-        cur = "";
-      } else {
-        cur += ch;
-      }
-    }
-  }
-  result.push(cur);
-  return result;
-}
+
 
 function parseCsvRecords(content: string): Array<Record<string, string>> {
   const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);

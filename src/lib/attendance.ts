@@ -2,6 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import type { DuckDBConnection, DuckDBInstance } from './duckdb';
 import { getDuckDB, getRawReportsReadDirs, runQuery } from './duckdb';
+import {
+  convertExcelToCsv,
+  normalizeDateToIso,
+  normalizeTimeToHHMM,
+  parseCsvLine,
+} from './excel-parser';
+
+export { isExcelFile, convertExcelToCsv } from './excel-parser';
 
 export interface EmployeeMaster {
   employee_name: string;
@@ -411,13 +419,16 @@ export function parseMajooAttendanceCsv(
 } {
   const lines = content.split(/\r?\n/);
   let headerIdx = -1;
+  let delim = ',';
+
   for (let i = 0; i < Math.min(40, lines.length); i++) {
+    const lower = lines[i].toLowerCase();
     if (
-      lines[i].includes('Tanggal') &&
-      lines[i].includes('Nama') &&
-      lines[i].includes('Jam Masuk')
+      lower.includes('tanggal') &&
+      (lower.includes('nama') || lower.includes('jam masuk') || lower.includes('outlet'))
     ) {
       headerIdx = i;
+      delim = lines[i].includes(';') ? ';' : lines[i].includes('\t') ? '\t' : ',';
       break;
     }
   }
@@ -442,23 +453,48 @@ export function parseMajooAttendanceCsv(
     return { records, minDate: null, maxDate: null };
   }
 
+  // Parse header columns dynamically
+  const headerCols = parseCsvLine(lines[headerIdx], delim).map((h) => h.toLowerCase());
+  const dateColIdx = headerCols.findIndex((h) => h.includes('tanggal') || h.includes('date'));
+  const nameColIdx = headerCols.findIndex(
+    (h) => h.includes('nama') || h.includes('karyawan') || h.includes('staff') || h.includes('employee')
+  );
+  const outletColIdx = headerCols.findIndex((h) => h.includes('outlet') || h.includes('cabang'));
+  const inColIdx = headerCols.findIndex(
+    (h) => (h.includes('masuk') || h.includes('clock in') || h.includes('in')) && !h.includes('pulang')
+  );
+  const outColIdx = headerCols.findIndex(
+    (h) => h.includes('pulang') || h.includes('clock out') || h.includes('out')
+  );
+  const durColIdx = headerCols.findIndex(
+    (h) => h.includes('total jam') || h.includes('durasi') || h.includes('duration') || h.includes('aktual')
+  );
+  const statusColIdx = headerCols.findIndex((h) => h.includes('status'));
+  const notesColIdx = headerCols.findIndex((h) => h.includes('catatan') || h.includes('note'));
+
   let minDate: string | null = null;
   let maxDate: string | null = null;
 
   for (let i = headerIdx + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line || line.startsWith(',,,') || line.includes('Powered by')) continue;
-    const cols = line.split(',').map((c) => c.trim());
-    const workDate = cols[0] || '';
-    const empName = cols[1] || '';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || !empName) continue;
+    const rawLine = lines[i].trim();
+    if (!rawLine || rawLine.startsWith(',,,') || rawLine.includes('Powered by')) continue;
 
-    const outlet = cols[2] || 'Tyfel Coffee';
-    const clockIn = cols[3] || '-';
-    const clockOut = cols[4] || '-';
-    const rawDuration = cols[5] || '-';
-    const status = cols[6] || '';
-    const notes = cols[7] || '';
+    const cols = parseCsvLine(lines[i], delim);
+    const rawDate = cols[dateColIdx >= 0 ? dateColIdx : 0] || '';
+    const empName = cols[nameColIdx >= 0 ? nameColIdx : 1] || '';
+
+    const workDate = normalizeDateToIso(rawDate);
+    if (!workDate || !empName) continue;
+
+    const outlet = cols[outletColIdx >= 0 ? outletColIdx : 2] || 'Tyfel Coffee';
+    const rawIn = cols[inColIdx >= 0 ? inColIdx : 3] || '-';
+    const rawOut = cols[outColIdx >= 0 ? outColIdx : 4] || '-';
+    const rawDuration = cols[durColIdx >= 0 ? durColIdx : 5] || '-';
+    const status = cols[statusColIdx >= 0 ? statusColIdx : 6] || '';
+    const notes = cols[notesColIdx >= 0 ? notesColIdx : 7] || '';
+
+    const clockIn = normalizeTimeToHHMM(rawIn);
+    const clockOut = normalizeTimeToHHMM(rawOut);
 
     const durationSeconds = parseDurationToSeconds(rawDuration);
     const { anomalyType, effectiveHours } = classifyAttendanceRow(
@@ -489,6 +525,40 @@ export function parseMajooAttendanceCsv(
   }
 
   return { records, minDate, maxDate };
+}
+
+/**
+ * Parses attendance records directly from an Excel workbook (.xlsx or .xls) buffer.
+ */
+export function parseMajooAttendanceWorkbook(
+  buffer: Buffer,
+  sourceFileName: string
+): {
+  records: Array<{
+    attendance_id: string;
+    work_date: string;
+    employee_name: string;
+    outlet: string;
+    clock_in: string;
+    clock_out: string;
+    raw_duration: string;
+    duration_seconds: number;
+    effective_hours: number;
+    anomaly_type: AttendanceAnomalyType;
+    status: string;
+    notes: string;
+    source_file: string;
+  }>;
+  minDate: string | null;
+  maxDate: string | null;
+  convertedCsv: string;
+} {
+  const { csv } = convertExcelToCsv(buffer);
+  const result = parseMajooAttendanceCsv(csv, sourceFileName);
+  return {
+    ...result,
+    convertedCsv: csv,
+  };
 }
 
 export async function initializeAttendanceSchemaAndSeed(

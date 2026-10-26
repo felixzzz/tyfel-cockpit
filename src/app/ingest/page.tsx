@@ -102,6 +102,7 @@ function detectClientSignature(contentSample: string, fileName: string): {
 } {
   const sample = contentSample.slice(0, 3000);
   const lowerName = fileName.toLowerCase();
+  const isExcel = lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls");
 
   if (
     sample.includes("Laporan Absensi") ||
@@ -109,7 +110,12 @@ function detectClientSignature(contentSample: string, fileName: string): {
     lowerName.includes("attendance") ||
     lowerName.includes("absensi")
   ) {
-    return { type: "majoo_attendance", label: "Majoo Attendance (Laporan Absensi Karyawan)" };
+    return {
+      type: "majoo_attendance",
+      label: isExcel
+        ? "Majoo Attendance (Laporan Absensi XLSX)"
+        : "Majoo Attendance (Laporan Absensi Karyawan)",
+    };
   }
 
   if (
@@ -117,7 +123,12 @@ function detectClientSignature(contentSample: string, fileName: string): {
     (sample.includes("No Transaksi") && sample.includes("Waktu Order")) ||
     (sample.includes(";") && (lowerName.includes("majoo") || lowerName.includes("detil_penjualan")))
   ) {
-    return { type: "majoo", label: "Majoo POS (Greenville Dine-in / Takeaway)" };
+    return {
+      type: "majoo",
+      label: isExcel
+        ? "Majoo POS (Penjualan XLSX)"
+        : "Majoo POS (Greenville Dine-in / Takeaway)",
+    };
   }
 
   if (
@@ -125,7 +136,10 @@ function detectClientSignature(contentSample: string, fileName: string): {
     sample.includes("Meal Preparation Time") ||
     sample.includes("Merchant Discount")
   ) {
-    return { type: "klikit_orders", label: "Klikit Orders (Grab & GoFood Delivery)" };
+    return {
+      type: "klikit_orders",
+      label: isExcel ? "Klikit Orders (Delivery XLSX)" : "Klikit Orders (Grab & GoFood Delivery)",
+    };
   }
 
   if (
@@ -133,17 +147,36 @@ function detectClientSignature(contentSample: string, fileName: string): {
     sample.includes("Item Quantity") ||
     sample.includes("Item Sale Price")
   ) {
-    return { type: "klikit_items", label: "Klikit Menu Items (SKU Velocity)" };
+    return {
+      type: "klikit_items",
+      label: isExcel ? "Klikit Menu Items (SKU XLSX)" : "Klikit Menu Items (SKU Velocity)",
+    };
   }
 
   if (lowerName.includes("klikit") && lowerName.includes("order")) {
-    return { type: "klikit_orders", label: "Klikit Orders (Grab & GoFood Delivery)" };
+    return {
+      type: "klikit_orders",
+      label: isExcel ? "Klikit Orders (Delivery XLSX)" : "Klikit Orders (Grab & GoFood Delivery)",
+    };
   }
   if (lowerName.includes("klikit") && lowerName.includes("item")) {
-    return { type: "klikit_items", label: "Klikit Menu Items (SKU Velocity)" };
+    return {
+      type: "klikit_items",
+      label: isExcel ? "Klikit Menu Items (SKU XLSX)" : "Klikit Menu Items (SKU Velocity)",
+    };
+  }
+  if (lowerName.includes("majoo") || lowerName.includes("penjualan") || lowerName.includes("detil")) {
+    return {
+      type: "majoo",
+      label: isExcel ? "Majoo POS (Penjualan XLSX)" : "Majoo POS (Greenville Dine-in / Takeaway)",
+    };
   }
 
-  return { type: "unknown", label: "Unrecognized CSV Schema" };
+  if (isExcel) {
+    return { type: "unknown", label: "Excel Spreadsheet (.xlsx / .xls)" };
+  }
+
+  return { type: "unknown", label: "Unrecognized File Schema" };
 }
 
 export default function IngestPage() {
@@ -184,11 +217,17 @@ export default function IngestPage() {
 
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      if (!f.name.endsWith(".csv")) continue;
+      const lower = f.name.toLowerCase();
+      if (!lower.endsWith(".csv") && !lower.endsWith(".xlsx") && !lower.endsWith(".xls")) continue;
 
       try {
-        const textSample = await f.slice(0, 4096).text();
-        const lineCount = (await f.text()).split(/\r?\n/).filter((l) => l.trim().length > 0).length;
+        const isExcel = lower.endsWith(".xlsx") || lower.endsWith(".xls");
+        let lineCount = 0;
+        let textSample = "";
+        if (!isExcel) {
+          textSample = await f.slice(0, 4096).text();
+          lineCount = (await f.text()).split(/\r?\n/).filter((l) => l.trim().length > 0).length;
+        }
         const detection = detectClientSignature(textSample, f.name);
 
         newStaged.push({
@@ -302,9 +341,9 @@ export default function IngestPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2 text-[var(--text-primary)]">
                 <UploadCloud className="w-5 h-5 text-[var(--accent-primary)]" />
-                Upload CSV Report
+                Upload CSV / XLSX Report
               </h2>
-              <span className="text-xs text-[var(--text-secondary)]">Supports: Majoo POS, Attendance & Klikit</span>
+              <span className="text-xs text-[var(--text-secondary)]">Supports: Majoo POS, Attendance & Klikit (CSV or Excel)</span>
             </div>
 
             {/* Drag & Drop Target */}
@@ -323,7 +362,7 @@ export default function IngestPage() {
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 className="hidden"
                 onChange={(e) => {
                   if (e.target.files) handleFilesSelected(e.target.files);
@@ -335,10 +374,10 @@ export default function IngestPage() {
                 </div>
                 <div>
                   <p className="text-base font-semibold text-[var(--text-primary)]">
-                    Drag & drop your CSV files here, or <span className="text-[var(--accent-primary)] underline">browse</span>
+                    Drag & drop your CSV or Excel (.xlsx) files here, or <span className="text-[var(--accent-primary)] underline">browse</span>
                   </p>
                   <p className="text-xs text-[var(--text-secondary)] mt-1">
-                    Accepts Majoo POS <code className="text-[var(--text-primary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">Detail Penjualan</code>, <code className="text-[var(--text-primary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">Laporan Absensi</code>, or Klikit <code className="text-[var(--text-primary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">Orders/Items</code> CSV
+                    Accepts Majoo POS <code className="text-[var(--text-primary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">Detail Penjualan</code>, <code className="text-[var(--text-primary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">Laporan Absensi</code>, or Klikit <code className="text-[var(--text-primary)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)]">Orders/Items</code> (CSV / XLSX)
                   </p>
                 </div>
               </div>
@@ -380,7 +419,10 @@ export default function IngestPage() {
                               {item.detectedLabel}
                             </span>
                             <span className="text-[11px] text-[var(--text-muted)]">
-                              {formatBytes(item.file.size)} · ~{item.previewRows} rows
+                              {formatBytes(item.file.size)}
+                              {item.file.name.toLowerCase().endsWith(".xlsx") || item.file.name.toLowerCase().endsWith(".xls")
+                                ? " · Excel Workbook"
+                                : ` · ~${item.previewRows} rows`}
                             </span>
                           </div>
                         </div>
