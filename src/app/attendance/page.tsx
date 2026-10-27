@@ -88,9 +88,11 @@ export default function AttendancePayrollPage() {
   const [editShiftCutoff, setEditShiftCutoff] = useState<string>("07:30");
   const [editBasicSalary, setEditBasicSalary] = useState<number>(800000);
   const [editDailyRate, setEditDailyRate] = useState<number>(85000);
+  const [editHalfDayRate, setEditHalfDayRate] = useState<number>(42500);
   const [editLatePenalty, setEditLatePenalty] = useState<number>(20000);
   const [editNoLateBonus, setEditNoLateBonus] = useState<number>(85000);
   const [editDailyOverride, setEditDailyOverride] = useState<string>("");
+  const [editHalfDayOverride, setEditHalfDayOverride] = useState<string>("");
   const [editLateOverride, setEditLateOverride] = useState<string>("");
   const [editBonusQtyOverride, setEditBonusQtyOverride] = useState<string>("");
   const [editCustomDesc, setEditCustomDesc] = useState<string>("");
@@ -184,10 +186,14 @@ export default function AttendancePayrollPage() {
     setEditShiftCutoff(activeSlip.effective_shift_start);
     setEditBasicSalary(activeSlip.effective_basic_salary);
     setEditDailyRate(activeSlip.effective_daily_rate);
+    setEditHalfDayRate(activeSlip.effective_half_day_rate);
     setEditLatePenalty(activeSlip.effective_late_penalty_rate);
     setEditNoLateBonus(activeSlip.effective_no_late_bonus);
     setEditDailyOverride(
       activeSlip.daily_is_overridden ? String(activeSlip.daily_qty) : ""
+    );
+    setEditHalfDayOverride(
+      activeSlip.half_day_is_overridden ? String(activeSlip.half_day_qty) : ""
     );
     setEditLateOverride(
       activeSlip.late_is_overridden ? String(activeSlip.late_qty) : ""
@@ -300,10 +306,15 @@ export default function AttendancePayrollPage() {
           shift_start_override: editShiftCutoff,
           basic_salary_override: Number(editBasicSalary),
           daily_rate_override: Number(editDailyRate),
+          half_day_rate_override: Number(editHalfDayRate),
           late_penalty_override: Number(editLatePenalty),
           no_late_bonus_override: Number(editNoLateBonus),
           daily_count_override:
             editDailyOverride.trim() === "" ? null : Number(editDailyOverride),
+          half_day_count_override:
+            editHalfDayOverride.trim() === ""
+              ? null
+              : Number(editHalfDayOverride),
           late_count_override:
             editLateOverride.trim() === "" ? null : Number(editLateOverride),
           bonus_qty_override:
@@ -412,6 +423,9 @@ export default function AttendancePayrollPage() {
       "Paid Daily (#)",
       "Daily Rate",
       "Daily Total",
+      "Paid Setengah Hari (#)",
+      "Setengah Hari Rate",
+      "Setengah Hari Total",
       "Basic Salary",
       "Telat (#)",
       "Telat Penalty Rate",
@@ -439,6 +453,9 @@ export default function AttendancePayrollPage() {
       p.daily_qty,
       p.daily_unit,
       p.daily_total,
+      p.half_day_qty,
+      p.half_day_unit,
+      p.half_day_total,
       p.basic_total,
       p.late_qty,
       p.late_unit,
@@ -692,6 +709,24 @@ export default function AttendancePayrollPage() {
                       </td>
                     </tr>
 
+                    {/* Row 2.5: Setengah hari (Budi / half-day staff) */}
+                    {(activeSlip.has_half_day || activeSlip.half_day_qty > 0) && (
+                      <tr>
+                        <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
+                          Setengah hari
+                        </td>
+                        <td className="py-2.5 px-2.5 text-right font-mono border-r border-current/10">
+                          {activeSlip.half_day_qty}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono border-r border-current/10">
+                          {formatAccountingRp(activeSlip.half_day_unit, false)}
+                        </td>
+                        <td className="py-2.5 px-3.5 text-right font-mono font-medium">
+                          {formatAccountingRp(activeSlip.half_day_total)}
+                        </td>
+                      </tr>
+                    )}
+
                     {/* Row 3: Telat */}
                     <tr>
                       <td className="py-2.5 px-3.5 font-medium border-r border-current/10">
@@ -916,7 +951,7 @@ export default function AttendancePayrollPage() {
                       )}
                       <span>{p.employee.employee_name}</span>
                       <span className="text-[10px] opacity-75 font-mono">
-                        ({p.daily_qty}d)
+                        ({p.daily_qty}d{p.half_day_qty > 0 ? ` + ${p.half_day_qty}h` : ""})
                       </span>
                     </button>
                   );
@@ -1468,7 +1503,7 @@ export default function AttendancePayrollPage() {
                       )}
                       <span>{p.employee.employee_name}</span>
                       <span className="text-[10px] opacity-75 font-mono">
-                        ({p.daily_qty}d)
+                        ({p.daily_qty}d{p.half_day_qty > 0 ? ` + ${p.half_day_qty}h` : ""})
                       </span>
                       {p.has_period_override && (
                         <span
@@ -1692,6 +1727,21 @@ export default function AttendancePayrollPage() {
                       className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
+                  {activeSlip.has_half_day && (
+                    <div>
+                      <label className="block text-[var(--text-secondary)] mb-1">
+                        Rate Setengah Hari ({report.salary_code})
+                      </label>
+                      <input
+                        type="number"
+                        value={editHalfDayRate}
+                        onChange={(e) =>
+                          setEditHalfDayRate(Number(e.target.value))
+                        }
+                        className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
+                      />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-[var(--text-secondary)] mb-1">
                       Telat Penalty ({report.salary_code})
@@ -1721,7 +1771,13 @@ export default function AttendancePayrollPage() {
                 </div>
 
                 {/* Period Count Overrides */}
-                <div className="grid grid-cols-3 gap-2.5 text-xs pt-2 border-t border-[var(--border-subtle)]">
+                <div
+                  className={`grid ${
+                    activeSlip.has_half_day
+                      ? "grid-cols-2 sm:grid-cols-4"
+                      : "grid-cols-3"
+                  } gap-2.5 text-xs pt-2 border-t border-[var(--border-subtle)]`}
+                >
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[var(--text-secondary)]">Daily (#)</label>
@@ -1741,6 +1797,27 @@ export default function AttendancePayrollPage() {
                       className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
                     />
                   </div>
+                  {activeSlip.has_half_day && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[var(--text-secondary)]">Setengah Hari (#)</label>
+                        <button
+                          type="button"
+                          onClick={() => setEditHalfDayOverride("")}
+                          className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-mono cursor-pointer"
+                        >
+                          Auto ({activeSlip.computed_half_day_count})
+                        </button>
+                      </div>
+                      <input
+                        type="number"
+                        placeholder={`Auto: ${activeSlip.computed_half_day_count}`}
+                        value={editHalfDayOverride}
+                        onChange={(e) => setEditHalfDayOverride(e.target.value)}
+                        className="w-full surface-well rounded-lg px-2.5 py-1.5 text-[var(--text-primary)] font-mono"
+                      />
+                    </div>
+                  )}
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-[var(--text-secondary)]">Telat (#)</label>
@@ -1953,13 +2030,27 @@ export default function AttendancePayrollPage() {
                 </div>
 
                 {/* Shift Breakdown Mini Grid */}
-                <div className="grid grid-cols-3 gap-2.5 text-center">
+                <div
+                  className={`grid ${
+                    activeSlip.has_half_day
+                      ? "grid-cols-2 sm:grid-cols-4"
+                      : "grid-cols-3"
+                  } gap-2.5 text-center`}
+                >
                   <div className="p-3 rounded-xl surface-well">
                     <div className="text-lg font-bold font-mono text-[var(--text-primary)]">
-                      {activeSlip.full_shifts_count}
+                      {activeSlip.daily_qty}
                     </div>
                     <div className="text-[11px] text-[var(--text-secondary)]">Full Shifts</div>
                   </div>
+                  {activeSlip.has_half_day && (
+                    <div className="p-3 rounded-xl surface-well">
+                      <div className="text-lg font-bold font-mono text-blue-600 dark:text-blue-400">
+                        {activeSlip.half_day_qty}
+                      </div>
+                      <div className="text-[11px] text-[var(--text-secondary)]">Setengah Hari</div>
+                    </div>
+                  )}
                   <div className="p-3 rounded-xl surface-well">
                     <div
                       className={`text-lg font-bold font-mono ${
@@ -2174,12 +2265,22 @@ export default function AttendancePayrollPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
-                {report.payslips
-                  .filter((p) => {
-                    if (matrixPaymentFilter === "paid") return p.is_paid;
-                    if (matrixPaymentFilter === "unpaid") return !p.is_paid;
-                    return true;
-                  })
+                {report.payslips.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={13}
+                      className="py-8 text-center text-xs text-[var(--text-secondary)]"
+                    >
+                      Tidak ada karyawan yang memiliki absensi pada periode ini.
+                    </td>
+                  </tr>
+                ) : (
+                  report.payslips
+                    .filter((p) => {
+                      if (matrixPaymentFilter === "paid") return p.is_paid;
+                      if (matrixPaymentFilter === "unpaid") return !p.is_paid;
+                      return true;
+                    })
                   .map((p) => {
                     const isSelected =
                       p.employee.employee_name ===
@@ -2233,8 +2334,13 @@ export default function AttendancePayrollPage() {
                             </div>
                           )}
                         </td>
-                        <td className="py-3.5 px-3 text-right font-mono font-bold text-[var(--text-primary)]">
-                          {p.daily_qty}
+                        <td className="py-3.5 px-3 text-right font-mono text-[var(--text-primary)]">
+                          <div className="font-bold">{p.daily_qty}</div>
+                          {p.half_day_qty > 0 && (
+                            <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">
+                              +{p.half_day_qty} stg
+                            </div>
+                          )}
                         </td>
                         <td className="py-3.5 px-3 text-right font-mono">
                           <span
@@ -2251,7 +2357,12 @@ export default function AttendancePayrollPage() {
                           {formatAccountingRp(p.basic_total)}
                         </td>
                         <td className="py-3.5 px-3 text-right font-mono text-[var(--text-primary)]">
-                          {formatAccountingRp(p.daily_total)}
+                          <div>{formatAccountingRp(p.daily_total)}</div>
+                          {p.half_day_total > 0 && (
+                            <div className="text-[10px] text-blue-600 dark:text-blue-400">
+                              +{formatAccountingRp(p.half_day_total)} (stg)
+                            </div>
+                          )}
                         </td>
                         <td className="py-3.5 px-3 text-right font-mono text-rose-600 dark:text-rose-400">
                           {formatAccountingRp(p.late_total)}
@@ -2311,7 +2422,8 @@ export default function AttendancePayrollPage() {
                         </td>
                       </tr>
                     );
-                  })}
+                  })
+                )}
               </tbody>
               <tfoot>
                 <tr className="bg-[var(--bg-surface-2)] font-mono font-bold text-[var(--text-primary)] border-t border-[var(--border-default)]">
@@ -2319,7 +2431,12 @@ export default function AttendancePayrollPage() {
                     Total Cycle Liability ({report.salary_code})
                   </td>
                   <td className="py-3.5 px-3 text-right">
-                    {report.overall.total_work_days_paid}
+                    <div>{report.overall.total_work_days_paid}</div>
+                    {report.overall.total_half_days_paid > 0 && (
+                      <div className="text-[10px] text-blue-600 dark:text-blue-400 font-normal">
+                        +{report.overall.total_half_days_paid} stg
+                      </div>
+                    )}
                   </td>
                   <td className="py-3.5 px-3 text-right text-rose-600 dark:text-rose-300">
                     {report.overall.total_late_incidents}
@@ -2498,7 +2615,7 @@ export default function AttendancePayrollPage() {
                         )}
                         {log.anomaly_type === "short_shift" && (
                           <span className="badge-blue px-2 py-0.5 rounded font-mono text-[11px]">
-                            Short / Half Shift
+                            Setengah Hari ({log.raw_duration})
                           </span>
                         )}
                         {log.anomaly_type === "missing_clock_out" && (

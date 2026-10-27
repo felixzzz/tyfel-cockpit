@@ -40,6 +40,8 @@ export const dimEmployees = pgTable('dim_employees', {
   latePenaltyRate: doublePrecision('late_penalty_rate').notNull(),
   noLateBonus: doublePrecision('no_late_bonus').notNull(),
   isActive: boolean('is_active').default(true),
+  hasHalfDay: boolean('has_half_day').default(false),
+  halfDayRate: doublePrecision('half_day_rate').default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }),
 });
 
@@ -78,6 +80,8 @@ export const payrollPeriodAdjustments = pgTable(
     latePenaltyOverride: doublePrecision('late_penalty_override'),
     noLateBonusOverride: doublePrecision('no_late_bonus_override'),
     dailyCountOverride: integer('daily_count_override'),
+    halfDayCountOverride: integer('half_day_count_override'),
+    halfDayRateOverride: doublePrecision('half_day_rate_override'),
     lateCountOverride: integer('late_count_override'),
     bonusQtyOverride: integer('bonus_qty_override'),
     bonusOverride: doublePrecision('bonus_override'),

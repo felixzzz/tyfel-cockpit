@@ -20,6 +20,8 @@ export interface EmployeeMaster {
   shift_start_time: string; // default HH:MM e.g. '07:30'
   basic_salary: number;
   daily_rate: number;
+  half_day_rate?: number;
+  has_half_day?: boolean;
   late_penalty_rate: number;
   no_late_bonus: number;
   is_active: boolean;
@@ -31,9 +33,11 @@ export interface PayrollAdjustment {
   shift_start_override: string | null;
   basic_salary_override: number | null;
   daily_rate_override: number | null;
+  half_day_rate_override?: number | null;
   late_penalty_override: number | null;
   no_late_bonus_override: number | null;
   daily_count_override: number | null;
+  half_day_count_override?: number | null;
   late_count_override: number | null;
   bonus_qty_override: number | null;
   bonus_override: number | null;
@@ -85,6 +89,8 @@ export interface EmployeePayslipSummary {
   effective_shift_start: string;
   effective_basic_salary: number;
   effective_daily_rate: number;
+  effective_half_day_rate: number;
+  has_half_day: boolean;
   effective_late_penalty_rate: number;
   effective_no_late_bonus: number;
   // Attendance telemetry
@@ -95,6 +101,7 @@ export interface EmployeePayslipSummary {
   overnight_rollovers_count: number;
   open_shifts_count: number;
   computed_daily_count: number;
+  computed_half_day_count: number;
   computed_late_count: number;
   on_time_count: number;
   punctuality_rate_pct: number;
@@ -112,6 +119,12 @@ export interface EmployeePayslipSummary {
   daily_unit: number;
   daily_rate_is_overridden: boolean;
   daily_total: number;
+
+  half_day_qty: number;
+  half_day_is_overridden: boolean;
+  half_day_unit: number;
+  half_day_rate_is_overridden: boolean;
+  half_day_total: number;
 
   late_qty: number;
   late_is_overridden: boolean;
@@ -187,6 +200,7 @@ export interface AttendanceCycleReport {
     active_employees: number;
     total_attendance_logs: number;
     total_work_days_paid: number;
+    total_half_days_paid: number;
     total_late_incidents: number;
     overall_punctuality_pct: number;
     zero_late_achievers: number;
@@ -270,6 +284,8 @@ export const MASTER_EMPLOYEES: EmployeeMaster[] = [
     shift_start_time: '06:00',
     basic_salary: 800000,
     daily_rate: 85000,
+    has_half_day: true,
+    half_day_rate: 42500,
     late_penalty_rate: 20000,
     no_late_bonus: 85000,
     is_active: true,
@@ -562,9 +578,10 @@ export function parseMajooAttendanceWorkbook(
 }
 
 export async function initializeAttendanceSchemaAndSeed(
-  db: DuckDBInstance
+  db?: DuckDBInstance
 ): Promise<void> {
-  const conn = await db.connect();
+  const instance = db || (await getDuckDB());
+  const conn = await instance.connect();
   try {
     await conn.run(`
       CREATE TABLE IF NOT EXISTS dim_employees (
@@ -579,6 +596,8 @@ export async function initializeAttendanceSchemaAndSeed(
         late_penalty_rate DOUBLE NOT NULL,
         no_late_bonus DOUBLE NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
+        has_half_day BOOLEAN DEFAULT FALSE,
+        half_day_rate DOUBLE DEFAULT 0,
         updated_at TIMESTAMP
       );
     `);
@@ -605,12 +624,21 @@ export async function initializeAttendanceSchemaAndSeed(
     const colCheck = await conn.run(`
       SELECT count(*) FROM information_schema.columns
       WHERE table_name = 'payroll_period_adjustments'
-        AND column_name = 'bonus_qty_override';
+        AND column_name = 'half_day_count_override';
     `);
     const colCheckRows = await colCheck.getRows();
     const hasNewCols = Number(colCheckRows[0]?.[0] ?? 0) > 0;
     if (!hasNewCols) {
-      await conn.run(`DROP TABLE IF EXISTS payroll_period_adjustments;`);
+      try {
+        await conn.run(`ALTER TABLE payroll_period_adjustments ADD COLUMN half_day_count_override INTEGER;`);
+      } catch {
+        // ignore
+      }
+      try {
+        await conn.run(`ALTER TABLE payroll_period_adjustments ADD COLUMN half_day_rate_override DOUBLE;`);
+      } catch {
+        // ignore
+      }
     }
 
     await conn.run(`
@@ -620,9 +648,11 @@ export async function initializeAttendanceSchemaAndSeed(
         shift_start_override VARCHAR,
         basic_salary_override DOUBLE,
         daily_rate_override DOUBLE,
+        half_day_rate_override DOUBLE,
         late_penalty_override DOUBLE,
         no_late_bonus_override DOUBLE,
         daily_count_override INTEGER,
+        half_day_count_override INTEGER,
         late_count_override INTEGER,
         bonus_qty_override INTEGER,
         bonus_override DOUBLE,
@@ -661,7 +691,9 @@ export async function initializeAttendanceSchemaAndSeed(
         ${e.daily_rate},
         ${e.late_penalty_rate},
         ${e.no_late_bonus},
-        ${e.is_active ? 'TRUE' : 'FALSE'}
+        ${e.is_active ? 'TRUE' : 'FALSE'},
+        ${e.has_half_day ? 'TRUE' : 'FALSE'},
+        ${e.half_day_rate || 0}
       )`
     ).join(',\n');
 
@@ -669,10 +701,12 @@ export async function initializeAttendanceSchemaAndSeed(
       INSERT INTO dim_employees (
         employee_name, full_name, role, outlet, join_date_label,
         shift_start_time, basic_salary, daily_rate, late_penalty_rate,
-        no_late_bonus, is_active
+        no_late_bonus, is_active, has_half_day, half_day_rate
       )
       VALUES ${empValues}
-      ON CONFLICT (employee_name) DO NOTHING;
+      ON CONFLICT (employee_name) DO UPDATE SET
+        has_half_day = EXCLUDED.has_half_day,
+        half_day_rate = EXCLUDED.half_day_rate;
     `);
 
     // Seed default Salary_8 adjustment for Aji (2026-08-16_to_2026-09-15) matching reference payslip
@@ -867,6 +901,35 @@ async function ensurePayrollPaymentStatusTable(): Promise<void> {
         PRIMARY KEY (period_key, employee_name)
       );
     `);
+    try {
+      await conn.run(`ALTER TABLE dim_employees ADD COLUMN has_half_day BOOLEAN DEFAULT FALSE;`);
+    } catch {
+      // ignore
+    }
+    try {
+      await conn.run(`ALTER TABLE dim_employees ADD COLUMN half_day_rate DOUBLE DEFAULT 0;`);
+    } catch {
+      // ignore
+    }
+    try {
+      await conn.run(`ALTER TABLE payroll_period_adjustments ADD COLUMN half_day_count_override INTEGER;`);
+    } catch {
+      // ignore
+    }
+    try {
+      await conn.run(`ALTER TABLE payroll_period_adjustments ADD COLUMN half_day_rate_override DOUBLE;`);
+    } catch {
+      // ignore
+    }
+    try {
+      await conn.run(`
+        UPDATE dim_employees
+        SET has_half_day = TRUE, half_day_rate = 42500
+        WHERE employee_name = 'Budi' AND (has_half_day IS NULL OR has_half_day = FALSE OR half_day_rate IS NULL OR half_day_rate = 0);
+      `);
+    } catch {
+      // ignore
+    }
     globalForAttendance.__fnbPayrollPaymentStatusTableEnsured = true;
   } finally {
     try {
@@ -889,7 +952,7 @@ export function buildChronologicalPayrollCycles(
   logCountsByPeriod: Map<string, number>,
   overrideCountsByPeriod: Map<string, number>,
   paidCountsByPeriod: Map<string, number> = new Map(),
-  expectedEmpCount = 8
+  expectedEmpCountOrMap: number | Map<string, number> = 8
 ): { years: number[]; cycles: PayrollCycleOption[]; defaultPeriodKey: string } {
   const refYear = parseInt(referenceDateStr.slice(0, 4), 10) || 2026;
   const years = [refYear - 1, refYear]; // e.g. [2025, 2026]
@@ -921,11 +984,16 @@ export function buildChronologicalPayrollCycles(
       const isSelectable = isCompleted || isCurrentRunning;
       const isEditable = isCompleted;
 
+      const activeEmpCount =
+        typeof expectedEmpCountOrMap === 'number'
+          ? expectedEmpCountOrMap
+          : (expectedEmpCountOrMap.get(periodKey) || 0);
+
       const logCount = logCountsByPeriod.get(periodKey) || 0;
       const overrideCount = overrideCountsByPeriod.get(periodKey) || 0;
       const paidCount = paidCountsByPeriod.get(periodKey) || 0;
       const paymentStatus: 'paid' | 'partial' | 'unpaid' =
-        expectedEmpCount > 0 && paidCount >= expectedEmpCount
+        activeEmpCount > 0 && paidCount >= activeEmpCount
           ? 'paid'
           : paidCount > 0
             ? 'partial'
@@ -955,7 +1023,7 @@ export function buildChronologicalPayrollCycles(
         log_count: logCount,
         override_count: overrideCount,
         paid_count: paidCount,
-        active_employee_count: expectedEmpCount,
+        active_employee_count: activeEmpCount,
         payment_status: paymentStatus,
         is_completed: isCompleted,
         is_current_running: isCurrentRunning,
@@ -993,7 +1061,7 @@ export async function getAttendanceCycleReport(params?: {
   await ensurePayrollPaymentStatusTable();
 
   // Inspect work_date counts in fact_attendance to anchor reference date (at least 2026-09-26)
-  const [allDatesRaw, allOverridesRaw, allPaidCountsRaw] =
+  const [allDatesRaw, allOverridesRaw, allPaidCountsRaw, dateEmpCountsRaw] =
     await Promise.all([
       runQuery<{ work_date: string; cnt: number }>(`
         SELECT CAST(work_date AS VARCHAR) as work_date, COUNT(*) as cnt
@@ -1010,6 +1078,11 @@ export async function getAttendanceCycleReport(params?: {
         FROM payroll_payment_status
         WHERE is_paid = TRUE
         GROUP BY period_key
+      `),
+      runQuery<{ work_date: string; employee_name: string }>(`
+        SELECT CAST(work_date AS VARCHAR) as work_date, employee_name
+        FROM fact_attendance
+        GROUP BY work_date, employee_name
       `),
     ]);
 
@@ -1050,6 +1123,38 @@ export async function getAttendanceCycleReport(params?: {
     );
   }
 
+  const empNamesByPeriod = new Map<string, Set<string>>();
+  for (const r of dateEmpCountsRaw) {
+    const d = r.work_date;
+    if (!d || d.length < 10) continue;
+    const y = parseInt(d.slice(0, 4), 10);
+    const m = parseInt(d.slice(5, 7), 10);
+    const day = parseInt(d.slice(8, 10), 10);
+
+    let cycleYear = y;
+    let cycleMonth = m;
+    if (day <= 15) {
+      if (m === 1) {
+        cycleYear = y - 1;
+        cycleMonth = 12;
+      } else {
+        cycleMonth = m - 1;
+      }
+    }
+    const endYear = cycleMonth === 12 ? cycleYear + 1 : cycleYear;
+    const endMonth = cycleMonth === 12 ? 1 : cycleMonth + 1;
+    const pKey = `${cycleYear}-${String(cycleMonth).padStart(2, '0')}-16_to_${endYear}-${String(endMonth).padStart(2, '0')}-15`;
+    if (!empNamesByPeriod.has(pKey)) {
+      empNamesByPeriod.set(pKey, new Set<string>());
+    }
+    empNamesByPeriod.get(pKey)!.add(r.employee_name);
+  }
+
+  const empCountsByPeriod = new Map<string, number>();
+  for (const [pKey, set] of empNamesByPeriod.entries()) {
+    empCountsByPeriod.set(pKey, set.size);
+  }
+
   const overrideCountsByPeriod = new Map<string, number>();
   for (const o of allOverridesRaw) {
     overrideCountsByPeriod.set(o.period_key, Number(o.cnt));
@@ -1060,14 +1165,12 @@ export async function getAttendanceCycleReport(params?: {
     paidCountsByPeriod.set(p.period_key, Number(p.cnt));
   }
 
-  const expectedActiveCount = MASTER_EMPLOYEES.filter((e) => e.is_active).length;
-
   const { years, cycles, defaultPeriodKey } = buildChronologicalPayrollCycles(
     referenceDate,
     logCountsByPeriod,
     overrideCountsByPeriod,
     paidCountsByPeriod,
-    expectedActiveCount
+    empCountsByPeriod
   );
 
   // Enforce only selectable previous periods; fallback to defaultPeriodKey if requested is future/invalid
@@ -1096,6 +1199,8 @@ export async function getAttendanceCycleReport(params?: {
         shift_start_time: string;
         basic_salary: number;
         daily_rate: number;
+        half_day_rate?: number;
+        has_half_day?: boolean;
         late_penalty_rate: number;
         no_late_bonus: number;
         is_active: boolean;
@@ -1103,7 +1208,9 @@ export async function getAttendanceCycleReport(params?: {
         SELECT
           employee_name, full_name, role, outlet, join_date_label,
           shift_start_time, basic_salary, daily_rate, late_penalty_rate,
-          no_late_bonus, is_active
+          no_late_bonus, is_active,
+          COALESCE(has_half_day, FALSE) AS has_half_day,
+          COALESCE(half_day_rate, 0) AS half_day_rate
         FROM dim_employees
         ORDER BY is_active DESC, employee_name ASC
       `),
@@ -1147,9 +1254,11 @@ export async function getAttendanceCycleReport(params?: {
         shift_start_override: string | null;
         basic_salary_override: number | null;
         daily_rate_override: number | null;
+        half_day_rate_override: number | null;
         late_penalty_override: number | null;
         no_late_bonus_override: number | null;
         daily_count_override: number | null;
+        half_day_count_override: number | null;
         late_count_override: number | null;
         bonus_qty_override: number | null;
         bonus_override: number | null;
@@ -1166,9 +1275,11 @@ export async function getAttendanceCycleReport(params?: {
           shift_start_override,
           basic_salary_override,
           daily_rate_override,
+          half_day_rate_override,
           late_penalty_override,
           no_late_bonus_override,
           daily_count_override,
+          half_day_count_override,
           late_count_override,
           bonus_qty_override,
           bonus_override,
@@ -1201,10 +1312,15 @@ export async function getAttendanceCycleReport(params?: {
 
   const empMap = new Map<string, EmployeeMaster>();
   for (const e of employeesRaw) {
+    const isBudi = e.employee_name === 'Budi';
     empMap.set(e.employee_name, {
       ...e,
       basic_salary: Number(e.basic_salary),
       daily_rate: Number(e.daily_rate),
+      has_half_day: isBudi ? true : Boolean(e.has_half_day),
+      half_day_rate: isBudi
+        ? (Number(e.half_day_rate) > 0 ? Number(e.half_day_rate) : Math.round(Number(e.daily_rate) / 2))
+        : Number(e.half_day_rate || 0),
       late_penalty_rate: Number(e.late_penalty_rate),
       no_late_bonus: Number(e.no_late_bonus),
       is_active: Boolean(e.is_active),
@@ -1226,6 +1342,11 @@ export async function getAttendanceCycleReport(params?: {
         a.daily_rate_override !== null && a.daily_rate_override !== undefined
           ? Number(a.daily_rate_override)
           : null,
+      half_day_rate_override:
+        a.half_day_rate_override !== null &&
+        a.half_day_rate_override !== undefined
+          ? Number(a.half_day_rate_override)
+          : null,
       late_penalty_override:
         a.late_penalty_override !== null &&
         a.late_penalty_override !== undefined
@@ -1239,6 +1360,11 @@ export async function getAttendanceCycleReport(params?: {
       daily_count_override:
         a.daily_count_override !== null && a.daily_count_override !== undefined
           ? Number(a.daily_count_override)
+          : null,
+      half_day_count_override:
+        a.half_day_count_override !== null &&
+        a.half_day_count_override !== undefined
+          ? Number(a.half_day_count_override)
           : null,
       late_count_override:
         a.late_count_override !== null && a.late_count_override !== undefined
@@ -1308,9 +1434,16 @@ export async function getAttendanceCycleReport(params?: {
     const adj = adjMap.get(emp.employee_name);
     const payRec = paymentMap.get(emp.employee_name);
 
-    if (!emp.is_active && empLogs.length === 0 && !adj) {
+    // Karyawan yang tidak ada absen di periode bulan tersebut tidak usah dimunculkan
+    if (empLogs.length === 0) {
       continue;
     }
+
+    const hasHalfDay = Boolean(
+      emp.has_half_day ||
+      emp.employee_name === 'Budi' ||
+      (adj?.half_day_count_override !== null && adj?.half_day_count_override !== undefined)
+    );
 
     const effectiveShiftStart =
       adj?.shift_start_override || emp.shift_start_time;
@@ -1324,6 +1457,13 @@ export async function getAttendanceCycleReport(params?: {
       adj?.daily_rate_override !== undefined
         ? adj.daily_rate_override
         : emp.daily_rate;
+    const effectiveHalfDayRate =
+      adj?.half_day_rate_override !== null &&
+      adj?.half_day_rate_override !== undefined
+        ? adj.half_day_rate_override
+        : emp.half_day_rate && emp.half_day_rate > 0
+          ? emp.half_day_rate
+          : Math.round(effectiveDailyRate / 2);
     const effectiveLatePenaltyRate =
       adj?.late_penalty_override !== null &&
       adj?.late_penalty_override !== undefined
@@ -1356,7 +1496,10 @@ export async function getAttendanceCycleReport(params?: {
     const lateLogs = empLogs.filter((l) => l.is_late);
     const anomalyLogs = empLogs.filter((l) => l.anomaly_type !== 'none');
 
-    const computedDailyCount = rawLogsCount;
+    const computedHalfDayCount = hasHalfDay ? shortShiftsCount : 0;
+    const computedDailyCount = hasHalfDay
+      ? Math.max(0, rawLogsCount - computedHalfDayCount)
+      : rawLogsCount;
     const computedLateCount = lateLogs.length;
     const onTimeCount = Math.max(
       0,
@@ -1403,6 +1546,18 @@ export async function getAttendanceCycleReport(params?: {
     const dailyUnit = effectiveDailyRate;
     const dailyTotal = dailyQty * dailyUnit;
 
+    const halfDayIsOverridden =
+      adj?.half_day_count_override !== null &&
+      adj?.half_day_count_override !== undefined;
+    const halfDayRateIsOverridden =
+      adj?.half_day_rate_override !== null &&
+      adj?.half_day_rate_override !== undefined;
+    const halfDayQty = halfDayIsOverridden
+      ? adj!.half_day_count_override!
+      : computedHalfDayCount;
+    const halfDayUnit = effectiveHalfDayRate;
+    const halfDayTotal = halfDayQty * halfDayUnit;
+
     const lateIsOverridden =
       adj?.late_count_override !== null &&
       adj?.late_count_override !== undefined;
@@ -1418,7 +1573,7 @@ export async function getAttendanceCycleReport(params?: {
     const bonusQtyIsOverridden =
       adj?.bonus_qty_override !== null && adj?.bonus_qty_override !== undefined;
     const qualifiesBonus =
-      lateQty === 0 && dailyQty >= 10 && effectiveNoLateBonus > 0;
+      lateQty === 0 && (dailyQty + halfDayQty) >= 10 && effectiveNoLateBonus > 0;
     const bonusQty = bonusQtyIsOverridden
       ? adj!.bonus_qty_override!
       : qualifiesBonus
@@ -1436,7 +1591,7 @@ export async function getAttendanceCycleReport(params?: {
     const customTotal = customQty * customUnit;
 
     const grandTotal =
-      basicTotal + dailyTotal + lateTotal + bonusTotal + customTotal;
+      basicTotal + dailyTotal + halfDayTotal + lateTotal + bonusTotal + customTotal;
 
     const kasbonQty = adj?.kasbon_qty || 0;
     const kasbonUnit = adj?.kasbon_unit_value || 0;
@@ -1455,6 +1610,8 @@ export async function getAttendanceCycleReport(params?: {
       effective_shift_start: effectiveShiftStart,
       effective_basic_salary: effectiveBasicSalary,
       effective_daily_rate: effectiveDailyRate,
+      effective_half_day_rate: effectiveHalfDayRate,
+      has_half_day: hasHalfDay,
       effective_late_penalty_rate: effectiveLatePenaltyRate,
       effective_no_late_bonus: effectiveNoLateBonus,
       raw_logs_count: rawLogsCount,
@@ -1464,6 +1621,7 @@ export async function getAttendanceCycleReport(params?: {
       overnight_rollovers_count: overnightRolloversCount,
       open_shifts_count: openShiftsCount,
       computed_daily_count: computedDailyCount,
+      computed_half_day_count: computedHalfDayCount,
       computed_late_count: computedLateCount,
       on_time_count: onTimeCount,
       punctuality_rate_pct: punctualityRatePct,
@@ -1479,6 +1637,11 @@ export async function getAttendanceCycleReport(params?: {
       daily_unit: dailyUnit,
       daily_rate_is_overridden: dailyRateIsOverridden,
       daily_total: dailyTotal,
+      half_day_qty: halfDayQty,
+      half_day_is_overridden: halfDayIsOverridden,
+      half_day_unit: halfDayUnit,
+      half_day_rate_is_overridden: halfDayRateIsOverridden,
+      half_day_total: halfDayTotal,
       late_qty: lateQty,
       late_is_overridden: lateIsOverridden,
       late_unit: lateUnit,
@@ -1518,6 +1681,7 @@ export async function getAttendanceCycleReport(params?: {
   );
   const totalAttendanceLogs = enrichedLogs.length;
   const totalWorkDaysPaid = payslips.reduce((s, p) => s + p.daily_qty, 0);
+  const totalHalfDaysPaid = payslips.reduce((s, p) => s + p.half_day_qty, 0);
   const totalLateIncidents = payslips.reduce((s, p) => s + p.late_qty, 0);
   const overallPunctualityPct =
     totalAttendanceLogs > 0
@@ -1604,6 +1768,7 @@ export async function getAttendanceCycleReport(params?: {
       active_employees: activePayslips.length,
       total_attendance_logs: totalAttendanceLogs,
       total_work_days_paid: totalWorkDaysPaid,
+      total_half_days_paid: totalHalfDaysPaid,
       total_late_incidents: totalLateIncidents,
       overall_punctuality_pct: overallPunctualityPct,
       zero_late_achievers: zeroLateAchievers,
@@ -1699,9 +1864,11 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
   shift_start_override?: string | null;
   basic_salary_override?: number | null;
   daily_rate_override?: number | null;
+  half_day_rate_override?: number | null;
   late_penalty_override?: number | null;
   no_late_bonus_override?: number | null;
   daily_count_override?: number | null;
+  half_day_count_override?: number | null;
   late_count_override?: number | null;
   bonus_qty_override?: number | null;
   custom_desc?: string;
@@ -1763,6 +1930,11 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
       )
         sets.push(`daily_rate = ${Number(payload.daily_rate_override)}`);
       if (
+        payload.half_day_rate_override !== null &&
+        payload.half_day_rate_override !== undefined
+      )
+        sets.push(`half_day_rate = ${Number(payload.half_day_rate_override)}`);
+      if (
         payload.late_penalty_override !== null &&
         payload.late_penalty_override !== undefined
       )
@@ -1798,9 +1970,11 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         shift_start_override,
         basic_salary_override,
         daily_rate_override,
+        half_day_rate_override,
         late_penalty_override,
         no_late_bonus_override,
         daily_count_override,
+        half_day_count_override,
         late_count_override,
         bonus_qty_override,
         bonus_override,
@@ -1817,9 +1991,11 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         ${toSqlStrOrNull(payload.shift_start_override)},
         ${toSqlNumOrNull(payload.basic_salary_override)},
         ${toSqlNumOrNull(payload.daily_rate_override)},
+        ${toSqlNumOrNull(payload.half_day_rate_override)},
         ${toSqlNumOrNull(payload.late_penalty_override)},
         ${toSqlNumOrNull(payload.no_late_bonus_override)},
         ${toSqlNumOrNull(payload.daily_count_override)},
+        ${toSqlNumOrNull(payload.half_day_count_override)},
         ${toSqlNumOrNull(payload.late_count_override)},
         ${toSqlNumOrNull(payload.bonus_qty_override)},
         NULL,
@@ -1834,9 +2010,11 @@ export async function updateEmployeeAndPayrollAdjustment(payload: {
         shift_start_override = EXCLUDED.shift_start_override,
         basic_salary_override = EXCLUDED.basic_salary_override,
         daily_rate_override = EXCLUDED.daily_rate_override,
+        half_day_rate_override = EXCLUDED.half_day_rate_override,
         late_penalty_override = EXCLUDED.late_penalty_override,
         no_late_bonus_override = EXCLUDED.no_late_bonus_override,
         daily_count_override = EXCLUDED.daily_count_override,
+        half_day_count_override = EXCLUDED.half_day_count_override,
         late_count_override = EXCLUDED.late_count_override,
         bonus_qty_override = EXCLUDED.bonus_qty_override,
         custom_desc = EXCLUDED.custom_desc,
