@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "db:push": "drizzle-kit push",
     "db:migrate-duckdb": "node scripts/migrate-duckdb-to-supabase.mjs",
-    "db:push-layerbase": "node scripts/push-to-layerbase.mjs"
+    "db:push-layerbase": "node scripts/push-to-layerbase.mjs",
+    "egm:lint": "node scripts/lint-egm-spec.mjs"
   },
   "dependencies": {
     "@types/pdf-parse": "^1.1.5",

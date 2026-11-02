@@ -2154,6 +2154,22 @@ export async function getCustomerPortalData(customerId: string): Promise<Custome
   };
 }
 
+export async function lookupCateringCustomerByPhone(phoneInput: string): Promise<string | null> {
+  const clean = phoneInput.replace(/\D/g, '');
+  if (clean.length < 4) return null;
+  await ensureCateringReady();
+  const rows = await runQuery<{ customer_id: string; phone: string }>(`
+    SELECT customer_id, phone
+    FROM catering_customers
+    WHERE phone IS NOT NULL AND phone != '';
+  `);
+  const found = rows.find((r) => {
+    const cClean = (r.phone || '').replace(/\D/g, '');
+    return cClean.length >= 4 && (cClean.includes(clean) || clean.includes(cClean));
+  });
+  return found ? found.customer_id : null;
+}
+
 // ============================================================================
 // 3. CUSTOMER PORTAL SELF-SERVICE PROFILE UPDATE
 // ============================================================================

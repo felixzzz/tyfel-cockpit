@@ -3534,10 +3534,9 @@ export async function getGlobalMenuEngineering(
     const estimatedPromoBurn = Math.round(deliveryRatio * 0.08 * avgSellingPrice);
 
     // Realized Net Contribution per Unit (After Platform cut, Promo burn, and Prime BOM)
-    const unitNetContributionRp = Math.max(
-      0,
-      avgSellingPrice - estimatedPlatformFee - estimatedPromoBurn - blendedCogs
-    );
+    // Allows true negative unit margins to flow through so loss-making SKUs are clearly visible
+    const unitNetContributionRp =
+      avgSellingPrice - estimatedPlatformFee - estimatedPromoBurn - blendedCogs;
     const unitNetContributionPct =
       avgSellingPrice > 0 ? Number(((unitNetContributionRp / avgSellingPrice) * 100).toFixed(1)) : 0;
     const totalNetContributionRp = unitNetContributionRp * totalQty;

@@ -27,28 +27,51 @@ export interface ParsedBankStatement {
   transactions: ParsedBankTransaction[];
 }
 
-function parseIndoNumber(str: string): number {
+export function parseIndoNumber(str: string): number {
   if (!str) return 0;
-  // Replace comma with dot if dot is thousand sep, or handle Indonesian format e.g. "1,234.56" or "1.234,56"
-  const clean = str.replace(/[^\d.,-]/g, '').trim();
+  const isNegative = str.includes('-') || (str.startsWith('(') && str.endsWith(')'));
+  // Strip everything except digits, dots, and commas
+  const clean = str.replace(/[^\d.,]/g, '').trim();
+  if (!clean) return 0;
+
+  let val = 0;
   if (clean.includes(',') && clean.includes('.')) {
     if (clean.lastIndexOf('.') > clean.lastIndexOf(',')) {
-      // 1,234.56 format (BCA format)
-      return parseFloat(clean.replace(/,/g, '')) || 0;
+      // e.g. "1,234,567.89" format (BCA CSV format)
+      val = parseFloat(clean.replace(/,/g, '')) || 0;
     } else {
-      // 1.234,56 format
-      return parseFloat(clean.replace(/\./g, '').replace(',', '.')) || 0;
+      // e.g. "1.234.567,89" format (Indonesian standard format)
+      val = parseFloat(clean.replace(/\./g, '').replace(',', '.')) || 0;
     }
-  }
-  if (clean.includes(',')) {
-    // Check if it's decimal or thousand: e.g. 15,834.00 vs 15,834
+  } else if (clean.includes(',')) {
+    // Only commas: e.g. "15,834.00" vs "15,834"
     const parts = clean.split(',');
-    if (parts.length === 2 && parts[1].length === 2) {
-      return parseFloat(clean.replace(',', '.')) || 0;
+    if (parts.length === 2 && parts[1].length <= 2) {
+      val = parseFloat(clean.replace(',', '.')) || 0;
+    } else {
+      val = parseFloat(clean.replace(/,/g, '')) || 0;
     }
-    return parseFloat(clean.replace(/,/g, '')) || 0;
+  } else if (clean.includes('.')) {
+    // Only dots: e.g. "1.500.000", "250.000", or "150.50"
+    const parts = clean.split('.');
+    if (parts.length > 2) {
+      // Multiple dots must be thousand separators: e.g. "1.500.000" -> 1500000
+      val = parseFloat(clean.replace(/\./g, '')) || 0;
+    } else if (parts.length === 2) {
+      // Single dot: check if decimal (1 or 2 digits) vs thousand separator (3 digits)
+      if (parts[1].length === 3) {
+        val = parseFloat(clean.replace(/\./g, '')) || 0;
+      } else {
+        val = parseFloat(clean) || 0;
+      }
+    } else {
+      val = parseFloat(clean) || 0;
+    }
+  } else {
+    val = parseFloat(clean) || 0;
   }
-  return parseFloat(clean) || 0;
+
+  return isNegative ? -Math.abs(val) : val;
 }
 
 const MONTH_MAP: Record<string, string> = {
@@ -72,8 +95,8 @@ export function parseBcaCsv(csvText: string): ParsedBankStatement[] {
   const statements: ParsedBankStatement[] = [];
   const lines = csvText.split(/\r?\n/);
 
-  let currentAccountNumber = '4080067271';
-  let currentAccountName = 'FELIX SALIM';
+  let currentAccountNumber = '';
+  let currentAccountName = '';
   let currentCurrency = 'IDR';
   let currentTx: ParsedBankTransaction[] = [];
   let currentStartBalance = 0;
@@ -246,11 +269,11 @@ function isBcaPdfHeaderOrFooter(line: string): boolean {
 export function parseBcaPdfText(pdfText: string): ParsedBankStatement {
   // Extract Account No
   const accMatch = pdfText.match(/NO\.?\s*REKENING\s*:\s*(\d+)/i);
-  const accountNumber = accMatch ? accMatch[1] : '4080067271';
+  const accountNumber = accMatch ? accMatch[1] : '';
 
   // Extract Name
   const nameMatch = pdfText.match(/(?:REKENING TAHAPAN\s+KCP [^\n]+\n+)([A-Z\s]{3,30})\n/i);
-  const accountName = nameMatch ? nameMatch[1].trim() : 'FELIX SALIM';
+  const accountName = nameMatch ? nameMatch[1].trim() : '';
 
   // Extract Period
   const periodMatch = pdfText.match(/PERIODE\s*:\s*([A-Z]+)\s+(\d{4})/i);

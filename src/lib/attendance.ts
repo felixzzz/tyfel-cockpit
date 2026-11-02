@@ -399,10 +399,12 @@ export function classifyAttendanceRow(
     return { anomalyType: 'missing_clock_out', effectiveHours: 0 };
   }
   if (durationSeconds > 0 && durationSeconds < 300) {
+    // Closing tap in F&B ops (e.g. 7-second tap at closing): credit full 10-hour shift but flag anomaly
     return { anomalyType: 'closing_tap', effectiveHours: 10.0 };
   }
   if (durationSeconds >= 18 * 3600) {
-    return { anomalyType: 'overnight_rollover', effectiveHours: 12.0 };
+    // Overnight rollover / forgotten tap out: cap at standard 10-hour shift
+    return { anomalyType: 'overnight_rollover', effectiveHours: 10.0 };
   }
   const hours = Number((durationSeconds / 3600).toFixed(2));
   if (hours > 0 && hours < 8.5) {
@@ -490,6 +492,7 @@ export function parseMajooAttendanceCsv(
 
   let minDate: string | null = null;
   let maxDate: string | null = null;
+  const empDateCountMap = new Map<string, number>();
 
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const rawLine = lines[i].trim();
@@ -522,7 +525,10 @@ export function parseMajooAttendanceCsv(
     if (!minDate || workDate < minDate) minDate = workDate;
     if (!maxDate || workDate > maxDate) maxDate = workDate;
 
-    const attendanceId = `${workDate}_${empName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    const baseAttendanceId = `${workDate}_${empName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    const occurrence = (empDateCountMap.get(baseAttendanceId) || 0) + 1;
+    empDateCountMap.set(baseAttendanceId, occurrence);
+    const attendanceId = occurrence === 1 ? baseAttendanceId : `${baseAttendanceId}_shift${occurrence}`;
     records.push({
       attendance_id: attendanceId,
       work_date: workDate,

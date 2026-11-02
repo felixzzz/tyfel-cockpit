@@ -64,6 +64,13 @@ export async function POST(request: NextRequest) {
   if (!['superadmin', 'admin', 'staff'].includes(role)) {
     return NextResponse.json({ error: 'Role tidak valid.' }, { status: 400 });
   }
+  // Enforce role hierarchy: only superadmins can create other superadmins
+  if (role === 'superadmin' && session.role !== 'superadmin') {
+    return NextResponse.json(
+      { error: 'Hanya Superadmin yang dapat membuat akun dengan role Superadmin.' },
+      { status: 403 }
+    );
+  }
   if (password.length < 6) {
     return NextResponse.json({ error: 'Password minimal 6 karakter.' }, { status: 400 });
   }
@@ -93,18 +100,28 @@ export async function PUT(request: NextRequest) {
   const id = (body?.id || '').trim();
   if (!id) return NextResponse.json({ error: 'User ID wajib diisi.' }, { status: 400 });
 
+  const existing = await getUserById(id);
+  if (!existing) {
+    return NextResponse.json({ error: 'User tidak ditemukan.' }, { status: 404 });
+  }
+
+  // Enforce role hierarchy: only superadmin can modify superadmin accounts or assign superadmin role
+  if ((existing.role === 'superadmin' || body?.role === 'superadmin') && session.role !== 'superadmin') {
+    return NextResponse.json(
+      { error: 'Hanya Superadmin yang dapat mengelola atau menetapkan role Superadmin.' },
+      { status: 403 }
+    );
+  }
+
   // Prevent removing the last admin
-  if (body?.role === 'staff') {
-    const existing = await getUserById(id);
-    if (existing?.role === 'admin') {
-      const allUsers = await listUsers();
-      const adminCount = allUsers.filter((u) => u.role === 'admin' && u.is_active).length;
-      if (adminCount <= 1) {
-        return NextResponse.json(
-          { error: 'Tidak dapat mengubah role admin terakhir.' },
-          { status: 400 }
-        );
-      }
+  if (body?.role === 'staff' && existing.role === 'admin') {
+    const allUsers = await listUsers();
+    const adminCount = allUsers.filter((u) => u.role === 'admin' && u.is_active).length;
+    if (adminCount <= 1) {
+      return NextResponse.json(
+        { error: 'Tidak dapat mengubah role admin terakhir.' },
+        { status: 400 }
+      );
     }
   }
 
@@ -143,6 +160,19 @@ export async function DELETE(request: NextRequest) {
   // Prevent deactivating yourself
   if (id === session.sub) {
     return NextResponse.json({ error: 'Tidak dapat menonaktifkan akun sendiri.' }, { status: 400 });
+  }
+
+  const existing = await getUserById(id);
+  if (!existing) {
+    return NextResponse.json({ error: 'User tidak ditemukan.' }, { status: 404 });
+  }
+
+  // Only superadmin can deactivate a superadmin
+  if (existing.role === 'superadmin' && session.role !== 'superadmin') {
+    return NextResponse.json(
+      { error: 'Hanya Superadmin yang dapat menonaktifkan akun Superadmin.' },
+      { status: 403 }
+    );
   }
 
   const allUsers = await listUsers();

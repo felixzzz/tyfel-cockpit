@@ -1407,6 +1407,15 @@ function createLayerbaseHttpInstance(options: {
 
 let pgSqlClient: postgres.Sql | null = null;
 
+function translateDuckDbToPostgresSql(sqlText: string): string {
+  return sqlText
+    .replace(/strftime\s*\(\s*([^,]+)\s*,\s*'%Y-%m-%d'\s*\)/gi, "to_char($1, 'YYYY-MM-DD')")
+    .replace(/strftime\s*\(\s*([^,]+)\s*,\s*'%Y-%m'\s*\)/gi, "to_char($1, 'YYYY-MM')")
+    .replace(/strftime\s*\(\s*([^,]+)\s*,\s*'%d\s*%b\s*%H:%M'\s*\)/gi, "to_char($1, 'DD Mon HH24:MI')")
+    .replace(/strftime\s*\(\s*([^,]+)\s*,\s*'%Y-%m-%d\s*%H:%M:%S'\s*\)/gi, "to_char($1, 'YYYY-MM-DD HH24:MI:SS')")
+    .replace(/TRY_CAST\s*\(/gi, 'CAST(');
+}
+
 function createPostgresInstance(connectionString: string): DuckDBInstance {
   if (!pgSqlClient) {
     pgSqlClient = postgres(connectionString, {
@@ -1434,7 +1443,8 @@ function createPostgresInstance(connectionString: string): DuckDBInstance {
         invalidateQueryCache();
       }
 
-      const res = await sql.unsafe(queryText);
+      const pgQuery = translateDuckDbToPostgresSql(queryText);
+      const res = await sql.unsafe(pgQuery);
       const columns = res.columns ? res.columns.map((c) => c.name) : [];
       const rows = res.map((r) =>
         columns.map((colName) => {

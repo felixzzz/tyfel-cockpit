@@ -33,20 +33,17 @@ export default function CustomerPortalLookupPage() {
     setErrorMsg(null);
 
     try {
-      const res = await fetch("/api/catering");
+      const res = await fetch("/api/catering/portal/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: clean }),
+      });
       const json = await res.json();
-      if (json.success && json.data?.customers) {
-        const found = json.data.customers.find((c: { phone: string; customer_id: string }) => {
-          const cClean = (c.phone || "").replace(/\D/g, "");
-          return cClean.includes(clean) || clean.includes(cClean);
-        });
-
-        if (found) {
-          router.push(`/catering/portal/${found.customer_id}`);
-          return;
-        }
+      if (json.success && json.customerId) {
+        router.push(`/catering/portal/${json.customerId}`);
+        return;
       }
-      setErrorMsg("Nomor WhatsApp belum terdaftar di katering Herbox. Silakan periksa kembali atau chat admin.");
+      setErrorMsg(json.error || "Nomor WhatsApp belum terdaftar di katering Herbox. Silakan periksa kembali atau chat admin.");
     } catch {
       setErrorMsg("Gagal memeriksa nomor. Silakan coba lagi.");
     } finally {

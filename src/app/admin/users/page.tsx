@@ -24,6 +24,7 @@ import {
   ChefHat,
   Lock,
   Landmark,
+  Package,
 } from "lucide-react";
 import {
   ALL_PERMISSIONS,
@@ -52,6 +53,7 @@ const PERM_ICONS: Record<Permission, React.ReactNode> = {
   overview:        <LayoutDashboard className="w-3.5 h-3.5" />,
   finance:         <Landmark        className="w-3.5 h-3.5" />,
   recipes:         <Scale          className="w-3.5 h-3.5" />,
+  inventory:       <Package        className="w-3.5 h-3.5" />,
   catering:        <CalendarRange  className="w-3.5 h-3.5" />,
   attendance:      <Users          className="w-3.5 h-3.5" />,
   ingest:          <Database       className="w-3.5 h-3.5" />,

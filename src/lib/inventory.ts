@@ -290,7 +290,7 @@ export async function runBOMDepletion(): Promise<{
 }> {
   await ensureInventoryInitialized();
 
-  // Calculate total consumption from order items
+  // Calculate incremental consumption from order items created after the last depletion watermark
   const usageRows = await runQuery<{
     ingredient_id: string;
     total_qty: number;
@@ -304,6 +304,8 @@ export async function runBOMDepletion(): Promise<{
     JOIN dim_recipes r ON LOWER(TRIM(foi.item_name)) = LOWER(TRIM(r.item_name))
       OR LOWER(TRIM(foi.item_name)) = LOWER(TRIM(r.canonical_name))
     JOIN fact_recipe_ingredients fri ON r.recipe_id = fri.recipe_id
+    JOIN dim_ingredient_inventory inv ON inv.ingredient_id = fri.ingredient_id
+    WHERE foi.created_at > COALESCE(inv.last_depleted_at, '1970-01-01'::timestamp)
     GROUP BY fri.ingredient_id;
   `);
 
@@ -319,7 +321,8 @@ export async function runBOMDepletion(): Promise<{
     totalOrders = Math.max(totalOrders, Number(row.orders_count));
     totalUnits += qty;
 
-    const txId = `TX-DEP-${row.ingredient_id}-${Date.now()}`;
+    const nonce = `${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const txId = `TX-DEP-${row.ingredient_id}-${nonce}`;
     await runQuery(`
       UPDATE dim_ingredient_inventory
       SET
@@ -555,10 +558,13 @@ export async function submitStockOpnameAudit(params: {
 
   let totalVarianceRp = 0;
   let totalSystemValue = 0;
+  let totalShrinkageLossRp = 0;
   let highRiskCount = 0;
   const auditItems: StockOpnameItemAudit[] = [];
 
+  let itemIdx = 0;
   for (const c of params.counts) {
+    itemIdx++;
     const ing = ingMap.get(c.ingredientId);
     if (!ing) continue;
 
@@ -576,11 +582,18 @@ export async function submitStockOpnameAudit(params: {
 
     totalVarianceRp += auditItem.varianceValueRp;
     totalSystemValue += auditItem.systemStock * auditItem.unitCost;
+    if (auditItem.varianceValueRp < 0) {
+      totalShrinkageLossRp += Math.abs(auditItem.varianceValueRp);
+    }
     if (auditItem.varianceType === 'SHRINKAGE_SPILLAGE') {
       highRiskCount++;
     }
 
     auditItems.push(auditItem);
+
+    const nonce = `${Date.now()}-${itemIdx}-${Math.random().toString(36).substring(2, 6)}`;
+    const txId = `TX-OPNAME-${ing.ingredient_id}-${nonce}`;
+    const itemId = `OPN-ITM-${ing.ingredient_id}-${nonce}`;
 
     // Update actual stock in dim_ingredient_inventory
     await runQuery(`
@@ -592,7 +605,7 @@ export async function submitStockOpnameAudit(params: {
       INSERT INTO fact_inventory_transactions (
         tx_id, ingredient_id, tx_type, change_qty, resulting_stock, reference_id, notes, created_at
       ) VALUES (
-        'TX-OPNAME-${ing.ingredient_id}-${Date.now()}',
+        '${txId}',
         '${ing.ingredient_id}',
         '${auditItem.varianceQty < 0 ? 'ADJUSTMENT_WASTAGE' : 'INITIAL_COUNT'}',
         ${auditItem.varianceQty},
@@ -606,7 +619,7 @@ export async function submitStockOpnameAudit(params: {
         item_id, opname_id, ingredient_id, system_stock, actual_count,
         variance_qty, unit_cost, variance_value_rp, variance_pct, variance_type, notes
       ) VALUES (
-        'OPN-ITM-${ing.ingredient_id}-${Date.now()}',
+        '${itemId}',
         '${opnameId}',
         '${ing.ingredient_id}',
         ${auditItem.systemStock},
@@ -621,8 +634,10 @@ export async function submitStockOpnameAudit(params: {
     `);
   }
 
+  // Shrinkage percentage reflects true loss (shrinkage) against total system value,
+  // preventing accidental surpluses in other items from masking inventory leaks/theft.
   const netShrinkagePct =
-    totalSystemValue > 0 ? Number(((Math.abs(totalVarianceRp) / totalSystemValue) * 100).toFixed(2)) : 0;
+    totalSystemValue > 0 ? Number(((totalShrinkageLossRp / totalSystemValue) * 100).toFixed(2)) : 0;
 
   await runQuery(`
     INSERT INTO stock_opname_records (

@@ -5,7 +5,7 @@ import { submitStockOpnameAudit, getRecentStockOpnameAudits } from '@/lib/invent
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAuth(req);
+  const auth = await requireAuth(req, 'inventory');
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAuth(req);
+  const auth = await requireAuth(req, 'inventory');
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
