@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Space_Grotesk, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { ThemeProvider } from '@/components/ThemeProvider';
@@ -22,10 +22,25 @@ const fontMono = JetBrains_Mono({
   weight: ['400', '500', '600', '700'],
 });
 
+export const viewport: Viewport = {
+  themeColor: '#090d16',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
+
 export const metadata: Metadata = {
   title: 'Tyfel Hub · FnB Operations & Culinary Economics',
   description:
     'Executive multi-brand unit economics, kitchen SLA throughput & payroll command across Greenville & Kemang',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Tyfel Hub',
+  },
+  icons: {
+    apple: '/tyfel-logo.png',
+  },
 };
 
 export default function RootLayout({
