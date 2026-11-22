@@ -14,6 +14,7 @@ import {
   Sliders,
   X,
   Boxes,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { InventoryWorkbench } from '@/components/InventoryWorkbench';
 import { RecipesCatalogTab } from '@/components/recipes/RecipesCatalogTab';
@@ -22,6 +23,7 @@ import {
   type EditingIngredientState,
 } from '@/components/recipes/IngredientsCatalogTab';
 import { CogsSimulatorTab } from '@/components/recipes/CogsSimulatorTab';
+import { RecipeBulkSyncModal } from '@/components/recipes/RecipeBulkSyncModal';
 import {
   BRAND_OPTIONS,
   formatCompactRp,
@@ -41,6 +43,7 @@ export default function RecipesCogsCommandPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [bulkSyncOpen, setBulkSyncOpen] = useState<boolean>(false);
 
   // Tab 1: Recipe Analyzer & BOM Workbench state
   const [recipeSearch, setRecipeSearch] = useState<string>('');
@@ -512,6 +515,16 @@ export default function RecipesCogsCommandPage() {
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button
               type="button"
+              onClick={() => setBulkSyncOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
+              title="Sinkronisasi massal / Import-Export Excel & CSV data resep & bahan baku"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Bulk Sync (Excel/CSV)</span>
+            </button>
+
+            <button
+              type="button"
               disabled={actionBusy}
               onClick={handleAutoMapUnmapped}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-[var(--bg-surface-2)] hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] border border-[var(--border-default)] transition-all cursor-pointer disabled:opacity-50"
@@ -831,6 +844,7 @@ export default function RecipesCogsCommandPage() {
           onSaveBom={handleSaveRecipeBomLines}
           onPopulateDefaultLines={handlePopulateDefaultLinesForRecipe}
           onAddDraftLine={handleAddDraftLine}
+          onOpenBulkSync={() => setBulkSyncOpen(true)}
         />
       )}
 
@@ -846,6 +860,7 @@ export default function RecipesCogsCommandPage() {
           onEditIngredient={setEditingIngredient}
           onSaveIngredient={handleSaveIngredient}
           actionBusy={actionBusy}
+          onOpenBulkSync={() => setBulkSyncOpen(true)}
         />
       )}
 
@@ -861,6 +876,18 @@ export default function RecipesCogsCommandPage() {
 
       {/* TAB 4: Automated Inventory & Stock Depletion Tracking */}
       {activeTab === 'inventory' && <InventoryWorkbench />}
+
+      {/* Bulk Sync Modal */}
+      {bulkSyncOpen && (
+        <RecipeBulkSyncModal
+          isOpen={bulkSyncOpen}
+          onClose={() => setBulkSyncOpen(false)}
+          onSuccess={() => fetchDashboard(true)}
+          currentIngredients={data?.ingredients || []}
+          currentRecipes={data?.recipes || []}
+          showNotice={showNotice}
+        />
+      )}
     </main>
   );
 }

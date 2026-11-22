@@ -7,6 +7,7 @@ import {
   Edit3,
   Check,
   X,
+  FileSpreadsheet,
 } from "lucide-react";
 import type {
   RecipesCogsDashboardData,
@@ -42,6 +43,7 @@ export interface IngredientsCatalogTabProps {
   onEditIngredient: (ing: EditingIngredientState | null) => void;
   onSaveIngredient: (e: React.FormEvent) => void;
   actionBusy: boolean;
+  onOpenBulkSync?: () => void;
 }
 
 export function IngredientsCatalogTab({
@@ -54,6 +56,7 @@ export function IngredientsCatalogTab({
   onEditIngredient,
   onSaveIngredient,
   actionBusy,
+  onOpenBulkSync,
 }: IngredientsCatalogTabProps) {
   // Filtered Master Ingredients for Tab 2
   const filteredIngredients = useMemo(() => {
@@ -342,6 +345,18 @@ export function IngredientsCatalogTab({
                 className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-[var(--text-primary)]"
               />
             </div>
+
+            {onOpenBulkSync && (
+              <button
+                type="button"
+                onClick={onOpenBulkSync}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer shadow-2xs"
+                title="Bulk Import / Export Excel & CSV Bahan Baku"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Bulk Sync Excel/CSV</span>
+              </button>
+            )}
 
             <button
               type="button"

@@ -2695,6 +2695,191 @@ export async function saveRecipeIngredientLines(input: SaveRecipeLinesInput): Pr
 }
 
 /**
+ * Bulk upserts an array of master ingredients and cascades price changes to all linked recipes.
+ */
+export async function bulkUpsertMasterIngredients(
+  ingredients: UpsertMasterIngredientInput[]
+): Promise<{
+  ingredientsSaved: number;
+  cascadedRecipesCount: number;
+  affectedRecipeIds: string[];
+}> {
+  await ensureRecipesCogsTables();
+  if (!ingredients || ingredients.length === 0) {
+    return { ingredientsSaved: 0, cascadedRecipesCount: 0, affectedRecipeIds: [] };
+  }
+
+  const nowIso = new Date().toISOString();
+  const affectedIngIds: string[] = [];
+
+  for (const ing of ingredients) {
+    if (!ing.ingredient_name || ing.ingredient_name.trim().length === 0) continue;
+
+    const ingId =
+      ing.ingredient_id && ing.ingredient_id.trim().length > 0
+        ? ing.ingredient_id.trim()
+        : `ING-CUST-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(-3).toUpperCase()}`;
+
+    const safePrice = Math.max(0, Number(ing.purchase_price) || 0);
+    const safeQty = Math.max(0.01, Number(ing.purchase_qty) || 1);
+    const safeYield = Math.max(10, Math.min(100, Number(ing.yield_pct) || 100));
+
+    await execute(`DELETE FROM dim_ingredients WHERE ingredient_id = '${sqlEscape(ingId)}'`);
+    await execute(`
+      INSERT INTO dim_ingredients (
+        ingredient_id, ingredient_name, category, supplier_name,
+        purchase_unit_label, purchase_qty, base_unit, purchase_price, yield_pct, updated_at
+      ) VALUES (
+        '${sqlEscape(ingId)}',
+        '${sqlEscape(ing.ingredient_name.trim())}',
+        '${sqlEscape(ing.category)}',
+        '${sqlEscape(ing.supplier_name?.trim() || 'Preferred Supplier')}',
+        '${sqlEscape(ing.purchase_unit_label?.trim() || '1 Pack')}',
+        ${safeQty},
+        '${sqlEscape(ing.base_unit)}',
+        ${safePrice},
+        ${safeYield},
+        '${nowIso}'
+      )
+    `);
+    affectedIngIds.push(ingId);
+  }
+
+  let cascadedRecipesCount = 0;
+  let affectedRecipeIds: string[] = [];
+
+  if (affectedIngIds.length > 0) {
+    const inClause = affectedIngIds.map((id) => `'${sqlEscape(id)}'`).join(', ');
+    const usedInRows = await query<{ recipe_id: string }>(`
+      SELECT DISTINCT recipe_id
+      FROM fact_recipe_ingredients
+      WHERE ingredient_id IN (${inClause})
+    `);
+    affectedRecipeIds = usedInRows.map((r) => r.recipe_id);
+    if (affectedRecipeIds.length > 0) {
+      const syncRes = await syncDimRecipesFromIngredientLines(affectedRecipeIds);
+      cascadedRecipesCount = syncRes.updatedRecipesCount;
+    }
+  }
+
+  return {
+    ingredientsSaved: affectedIngIds.length,
+    cascadedRecipesCount,
+    affectedRecipeIds,
+  };
+}
+
+/**
+ * Bulk replaces recipe ingredient lines across multiple recipes and recalculates their COGS.
+ */
+export async function bulkSaveRecipeIngredientLines(
+  recipes: SaveRecipeLinesInput[]
+): Promise<{
+  recipesSaved: number;
+  totalLinesSaved: number;
+  affectedRecipeIds: string[];
+}> {
+  await ensureRecipesCogsTables();
+  if (!recipes || recipes.length === 0) {
+    return { recipesSaved: 0, totalLinesSaved: 0, affectedRecipeIds: [] };
+  }
+
+  const affectedRecipeIds: string[] = [];
+  let totalLinesSaved = 0;
+
+  for (const item of recipes) {
+    if (!item.recipe_id || !Array.isArray(item.lines)) continue;
+    const recipeId = item.recipe_id.trim();
+    affectedRecipeIds.push(recipeId);
+
+    await execute(`DELETE FROM fact_recipe_ingredients WHERE recipe_id = '${sqlEscape(recipeId)}'`);
+
+    const validLines = item.lines.filter(
+      (l) => l.ingredient_id && Number(l.qty_per_serving) > 0
+    );
+
+    if (validLines.length > 0) {
+      const valuesSql = validLines
+        .map((ln, idx) => {
+          const lineId = `LINE-${recipeId}-${String(idx + 1).padStart(2, '0')}-${Date.now()
+            .toString(36)
+            .slice(-4)}`;
+          return `('${sqlEscape(lineId)}', '${sqlEscape(recipeId)}', '${sqlEscape(
+            ln.ingredient_id
+          )}', '${sqlEscape(ln.component_role)}', ${Number(ln.qty_per_serving)}, '${sqlEscape(
+            (ln.prep_notes || '').trim()
+          )}')`;
+        })
+        .join(',\n');
+
+      await execute(`
+        INSERT INTO fact_recipe_ingredients (
+          line_id, recipe_id, ingredient_id, component_role, qty_per_serving, prep_notes
+        ) VALUES
+        ${valuesSql};
+      `);
+      totalLinesSaved += validLines.length;
+    }
+
+    if (typeof item.target_food_cost_pct === 'number' && item.target_food_cost_pct > 0) {
+      await execute(`
+        UPDATE dim_recipes
+        SET target_food_cost_pct = ${Number(item.target_food_cost_pct)}
+        WHERE recipe_id = '${sqlEscape(recipeId)}'
+      `);
+    }
+  }
+
+  if (affectedRecipeIds.length > 0) {
+    await syncDimRecipesFromIngredientLines(affectedRecipeIds);
+  }
+
+  return {
+    recipesSaved: affectedRecipeIds.length,
+    totalLinesSaved,
+    affectedRecipeIds,
+  };
+}
+
+/**
+ * Executes a full bulk sync for both ingredients and recipe BOMs.
+ */
+export async function bulkImportSync(payload: {
+  ingredients?: UpsertMasterIngredientInput[];
+  recipes?: SaveRecipeLinesInput[];
+}): Promise<{
+  ingredientsSaved: number;
+  recipesSaved: number;
+  linesSaved: number;
+  totalSyncedRecipes: number;
+}> {
+  await ensureRecipesCogsTables();
+
+  let ingredientsSaved = 0;
+  if (payload.ingredients && payload.ingredients.length > 0) {
+    const ingRes = await bulkUpsertMasterIngredients(payload.ingredients);
+    ingredientsSaved = ingRes.ingredientsSaved;
+  }
+
+  let recipesSaved = 0;
+  let linesSaved = 0;
+  if (payload.recipes && payload.recipes.length > 0) {
+    const recRes = await bulkSaveRecipeIngredientLines(payload.recipes);
+    recipesSaved = recRes.recipesSaved;
+    linesSaved = recRes.totalLinesSaved;
+  }
+
+  const finalSync = await syncDimRecipesFromIngredientLines();
+
+  return {
+    ingredientsSaved,
+    recipesSaved,
+    linesSaved,
+    totalSyncedRecipes: finalSync.updatedRecipesCount,
+  };
+}
+
+/**
  * Resets all master ingredients and recipe ingredient lines to the calibrated factory seed,
  * and syncs `dim_recipes` back to the master specifications.
  */

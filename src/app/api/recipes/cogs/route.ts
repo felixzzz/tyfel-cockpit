@@ -7,6 +7,9 @@ import {
   saveRecipeIngredientLines,
   syncDimRecipesFromIngredientLines,
   resetRecipesCogsToFactorySeed,
+  bulkUpsertMasterIngredients,
+  bulkSaveRecipeIngredientLines,
+  bulkImportSync,
   UpsertMasterIngredientInput,
   SaveRecipeLinesInput,
 } from '@/lib/recipesCogs';
@@ -88,6 +91,67 @@ export async function POST(req: NextRequest) {
         ok: true,
         ...res,
         message: `Saved ${res.linesSaved} ingredient/packaging line(s) and updated recipe BOM cost.`,
+      });
+    }
+
+    if (action === 'bulk_sync') {
+      const payload = {
+        ingredients: Array.isArray(body.ingredients) ? body.ingredients : undefined,
+        recipes: Array.isArray(body.recipes) ? body.recipes : undefined,
+      };
+
+      const res = await bulkImportSync(payload);
+
+      revalidatePath('/');
+      revalidatePath('/recipes');
+      revalidatePath('/brands/[brandId]', 'page');
+
+      return NextResponse.json({
+        ok: true,
+        ...res,
+        message: `Berhasil sinkronisasi: ${res.ingredientsSaved} bahan baku diperbarui, ${res.recipesSaved} resep (${res.linesSaved} baris takaran) disimpan, dan ${res.totalSyncedRecipes} resep dihitung ulang HPP-nya.`,
+      });
+    }
+
+    if (action === 'bulk_upsert_ingredients') {
+      if (!Array.isArray(body.ingredients)) {
+        return NextResponse.json(
+          { ok: false, error: 'ingredients array is required' },
+          { status: 400 }
+        );
+      }
+
+      const res = await bulkUpsertMasterIngredients(body.ingredients);
+
+      revalidatePath('/');
+      revalidatePath('/recipes');
+      revalidatePath('/brands/[brandId]', 'page');
+
+      return NextResponse.json({
+        ok: true,
+        ...res,
+        message: `Tersimpan ${res.ingredientsSaved} master bahan baku dan HPP diperbarui pada ${res.cascadedRecipesCount} resep terkait.`,
+      });
+    }
+
+    if (action === 'bulk_save_recipes') {
+      if (!Array.isArray(body.recipes)) {
+        return NextResponse.json(
+          { ok: false, error: 'recipes array is required' },
+          { status: 400 }
+        );
+      }
+
+      const res = await bulkSaveRecipeIngredientLines(body.recipes);
+
+      revalidatePath('/');
+      revalidatePath('/recipes');
+      revalidatePath('/brands/[brandId]', 'page');
+
+      return NextResponse.json({
+        ok: true,
+        ...res,
+        message: `Tersimpan ${res.totalLinesSaved} baris takaran pada ${res.recipesSaved} resep.`,
       });
     }
 

@@ -8,6 +8,7 @@ import {
   Save,
   Sparkles,
   Layers,
+  FileSpreadsheet,
 } from "lucide-react";
 import type {
   RecipesCogsDashboardData,
@@ -39,6 +40,7 @@ export interface RecipesCatalogTabProps {
   onSaveBom: () => void;
   onPopulateDefaultLines: () => void;
   onAddDraftLine: (role: ComponentRole) => void;
+  onOpenBulkSync?: () => void;
 }
 
 export function RecipesCatalogTab({
@@ -60,6 +62,7 @@ export function RecipesCatalogTab({
   onSaveBom,
   onPopulateDefaultLines,
   onAddDraftLine,
+  onOpenBulkSync,
 }: RecipesCatalogTabProps) {
   // Filtered recipes for Tab 1
   const filteredRecipes = useMemo(() => {
@@ -143,16 +146,30 @@ export function RecipesCatalogTab({
               </p>
             </div>
 
-            {/* Search Box */}
-            <div className="relative w-full sm:w-64">
-              <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={recipeSearch}
-                onChange={(e) => onRecipeSearchChange(e.target.value)}
-                placeholder="Search dish, SKU, ingredient..."
-                className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
-              />
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              {/* Search Box */}
+              <div className="relative flex-1 sm:w-64">
+                <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={recipeSearch}
+                  onChange={(e) => onRecipeSearchChange(e.target.value)}
+                  placeholder="Search dish, SKU, ingredient..."
+                  className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-[var(--bg-surface-2)] border border-[var(--border-default)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+                />
+              </div>
+
+              {onOpenBulkSync && (
+                <button
+                  type="button"
+                  onClick={onOpenBulkSync}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-surface-2)] hover:bg-[var(--bg-surface-3)] text-[var(--text-primary)] border border-[var(--border-default)] transition-all cursor-pointer shrink-0"
+                  title="Bulk Sync BOM dan Resep dengan Excel/CSV"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="hidden sm:inline">Bulk Sync BOM</span>
+                </button>
+              )}
             </div>
           </div>
 
