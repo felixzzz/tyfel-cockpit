@@ -710,7 +710,7 @@ export default function AttendancePayrollPage() {
         {/* Loading state indicator */}
         {loading && !report && (
           <div className="cockpit-panel rounded-2xl p-8 text-center text-xs font-mono text-[var(--text-secondary)] animate-pulse">
-            Loading Payroll &amp; Attendance Telemetry from DuckDB...
+            Loading Payroll &amp; Attendance Telemetry from Database...
           </div>
         )}
 

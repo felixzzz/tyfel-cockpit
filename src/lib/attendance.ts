@@ -748,7 +748,7 @@ export async function initializeAttendanceSchemaAndSeed(
       await conn.run(`CHECKPOINT;`);
     }
   } catch (err) {
-    console.warn('[DuckDB Attendance Seed Notice]', err);
+    console.warn('[Database Attendance Seed Notice]', err);
   } finally {
     try {
       conn.closeSync?.();

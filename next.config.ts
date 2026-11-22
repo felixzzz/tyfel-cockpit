@@ -6,18 +6,9 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/**": [
       "./data/**/*",
-      "./node_modules/@duckdb/**/*",
     ],
   },
   serverExternalPackages: [
-    "@duckdb/node-api",
-    "@duckdb/node-bindings",
-    "@duckdb/node-bindings-darwin-arm64",
-    "@duckdb/node-bindings-darwin-x64",
-    "@duckdb/node-bindings-linux-x64",
-    "@duckdb/node-bindings-linux-arm64",
-    "@duckdb/node-bindings-linux-x64-musl",
-    "@duckdb/node-bindings-linux-arm64-musl",
     "pdf-parse",
     "pdfjs-dist",
   ],

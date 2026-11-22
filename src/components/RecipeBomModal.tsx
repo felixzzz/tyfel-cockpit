@@ -336,7 +336,7 @@ export function RecipeBomModal({
       }
 
       setRecipeId(data.recipe_id);
-      setFeedback({ type: 'success', text: data.message || 'Saved recipe BOM to DuckDB/Layerbase.' });
+      setFeedback({ type: 'success', text: data.message || 'Saved recipe BOM to database.' });
       await loadCatalog(defaultBrandFilter);
       router.refresh();
     } catch (err) {

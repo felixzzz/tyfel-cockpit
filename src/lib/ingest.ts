@@ -333,7 +333,7 @@ export async function processUploadedFile(
       const prefix = isFromExcel ? `[Excel Converted] ` : "";
       const msg =
         res.newInserted === 0 && res.totalParsed > 0
-          ? `${prefix}Saved as "${canonicalName}". All ${res.totalParsed} attendance logs were already present in DuckDB (updated in place).`
+          ? `${prefix}Saved as "${canonicalName}". All ${res.totalParsed} attendance logs were already present in the database (updated in place).`
           : `${prefix}Saved as "${canonicalName}". Ingested ${res.newInserted} new attendance logs (${res.updatedCount} updated) across ${res.minDate || "?"} to ${res.maxDate || "?"}.`;
       return {
         success: true,
@@ -656,7 +656,7 @@ async function ingestMajooPOS(
 
   let msg = `Saved as "${canonicalName}". `;
   if (newOrders === 0 && ordersToInsert.length > 0) {
-    msg += `All ${ordersToInsert.length} Majoo tickets were already synced in DuckDB. Deduplication updated records in place with zero revenue inflation.`;
+    msg += `All ${ordersToInsert.length} Majoo tickets were already synced in PostgreSQL. Deduplication updated records in place with zero revenue inflation.`;
   } else {
     msg += `Successfully ingested ${newOrders} new Majoo tickets (${existingDupes} existing updated) and ${newItems} item rows.`;
   }
@@ -1020,9 +1020,9 @@ async function ingestKlikitOrders(
 
   let msg = `Saved as "${canonicalName}". `;
   if (newOrders === 0 && cnt > 0) {
-    msg += `All ${cnt} delivery orders (${cancelledCnt} cancelled) were already recorded in DuckDB (${minTs ? minTs.split(" ")[0] : ""} to ${maxTs ? maxTs.split(" ")[0] : ""}). Deduplication preserved clean GMV with zero double-counting.`;
+    msg += `All ${cnt} delivery orders (${cancelledCnt} cancelled) were already recorded in PostgreSQL (${minTs ? minTs.split(" ")[0] : ""} to ${maxTs ? maxTs.split(" ")[0] : ""}). Deduplication preserved clean GMV with zero double-counting.`;
   } else {
-    msg += `Successfully merged ${newOrders} new delivery orders (${existingDupes} existing deduplicated, ${cancelledCnt} cancelled tracked in Cancellation Ledger) into DuckDB.`;
+    msg += `Successfully merged ${newOrders} new delivery orders (${existingDupes} existing deduplicated, ${cancelledCnt} cancelled tracked in Cancellation Ledger) into PostgreSQL.`;
   }
 
   return {
@@ -1184,9 +1184,9 @@ async function ingestKlikitItems(
 
   let msg = `Saved as "${canonicalName}". `;
   if (newItems === 0 && cnt > 0) {
-    msg += `All ${cnt} item records were already present in DuckDB. Deduplication preserved clean item velocity.`;
+    msg += `All ${cnt} item records were already present in PostgreSQL. Deduplication preserved clean item velocity.`;
   } else {
-    msg += `Successfully merged ${newItems} new SKU records (${existingDupes} existing updated) into DuckDB.`;
+    msg += `Successfully merged ${newItems} new SKU records (${existingDupes} existing updated) into PostgreSQL.`;
   }
 
   return {

@@ -9,7 +9,6 @@ import {
   AlertCircle,
   RefreshCw,
   Trash2,
-  Database,
   ShieldCheck,
   Layers,
   Store,
@@ -316,7 +315,7 @@ export default function IngestPage() {
             </span>
           </div>
           <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-1">
-            Drag and drop raw Majoo POS or Klikit Aggregator CSV exports to automatically validate, deduplicate, and merge into DuckDB.
+            Drag and drop raw Majoo POS or Klikit Aggregator CSV exports to automatically validate, deduplicate, and merge into PostgreSQL.
           </p>
         </div>
 
@@ -325,10 +324,6 @@ export default function IngestPage() {
           <div className="badge-emerald inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium">
             <ShieldCheck className="w-3.5 h-3.5" />
             Zero-Duplicate Idempotent
-          </div>
-          <div className="badge-blue inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium">
-            <Database className="w-3.5 h-3.5" />
-            DuckDB Analytical Warehouse
           </div>
         </div>
       </div>
@@ -449,7 +444,7 @@ export default function IngestPage() {
                     {isUploading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Parsing & Ingesting to DuckDB...</span>
+                        <span>Parsing & Ingesting to Database...</span>
                       </>
                     ) : (
                       <>
@@ -501,13 +496,13 @@ export default function IngestPage() {
                       {res.ordersProcessed > 0 && res.newOrdersInserted === 0 && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded text-[11px] text-amber-600 dark:text-amber-300">
                           <Info className="w-3.5 h-3.5 shrink-0" />
-                          <span>All {res.ordersProcessed} orders in this file already exist in DuckDB. 0 new orders added (deduplication protected clean GMV).</span>
+                          <span>All {res.ordersProcessed} orders in this file already exist in the database. 0 new orders added (deduplication protected clean GMV).</span>
                         </div>
                       )}
                       {res.itemsProcessed > 0 && res.newItemsInserted === 0 && (
                         <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded text-[11px] text-amber-600 dark:text-amber-300">
                           <Info className="w-3.5 h-3.5 shrink-0" />
-                          <span>All {res.itemsProcessed} item records already exist in DuckDB. Item Pareto velocity preserved.</span>
+                          <span>All {res.itemsProcessed} item records already exist in the database. Item Pareto velocity preserved.</span>
                         </div>
                       )}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[var(--border-subtle)] text-[var(--text-secondary)]">
@@ -662,7 +657,7 @@ export default function IngestPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[var(--text-primary)]">Active Ingested Files in Data Lake</h3>
-                <p className="text-xs text-[var(--text-secondary)]">Reports stored in DuckDB data warehouse directory</p>
+                <p className="text-xs text-[var(--text-secondary)]">Reports stored in data warehouse storage directory</p>
               </div>
               <button
                 onClick={loadRawFiles}

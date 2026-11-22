@@ -27,6 +27,7 @@ export interface MasterIngredientSeed {
   purchase_qty: number;
   base_unit: BaseUnit;
   purchase_price: number;
+  previous_price?: number;
   yield_pct: number;
 }
 
@@ -55,6 +56,7 @@ export const MASTER_INGREDIENTS_SEED: MasterIngredientSeed[] = [
     purchase_qty: 1000,
     base_unit: 'g',
     purchase_price: 171385, // Rp 171.39 / g (Item Price #52)
+    previous_price: 162000, // +5.8% bean commodity inflation
     yield_pct: 100,
   },
   {
@@ -101,6 +103,7 @@ export const MASTER_INGREDIENTS_SEED: MasterIngredientSeed[] = [
     purchase_qty: 12000,
     base_unit: 'ml',
     purchase_price: 216450, // Rp 18.04 / ml (Rp 18,037.50 / L via Sukanda OneLink)
+    previous_price: 195000, // +11.0% dairy price spike
     yield_pct: 100,
   },
   {
@@ -1469,10 +1472,17 @@ export async function ensureRecipesCogsTables(): Promise<void> {
         purchase_qty DOUBLE,
         base_unit VARCHAR,
         purchase_price DOUBLE,
+        previous_price DOUBLE DEFAULT 0,
         yield_pct DOUBLE,
         updated_at VARCHAR
       );
     `);
+
+    try {
+      await execute(`ALTER TABLE dim_ingredients ADD COLUMN IF NOT EXISTS previous_price DOUBLE DEFAULT 0`);
+    } catch {
+      // column already exists
+    }
 
     await execute(`
       CREATE TABLE IF NOT EXISTS fact_recipe_ingredients (
@@ -1544,13 +1554,15 @@ export async function ensureRecipesCogsTables(): Promise<void> {
             ing.category
           )}', '${sqlEscape(ing.supplier_name)}', '${sqlEscape(ing.purchase_unit_label)}', ${
             ing.purchase_qty
-          }, '${sqlEscape(ing.base_unit)}', ${ing.purchase_price}, ${ing.yield_pct}, '${nowIso}')`
+          }, '${sqlEscape(ing.base_unit)}', ${ing.purchase_price}, ${
+            ing.previous_price ?? ing.purchase_price
+          }, ${ing.yield_pct}, '${nowIso}')`
       ).join(',\n');
 
       await execute(`
         INSERT INTO dim_ingredients (
           ingredient_id, ingredient_name, category, supplier_name,
-          purchase_unit_label, purchase_qty, base_unit, purchase_price, yield_pct, updated_at
+          purchase_unit_label, purchase_qty, base_unit, purchase_price, previous_price, yield_pct, updated_at
         ) VALUES
         ${valuesSql};
       `);
@@ -1907,6 +1919,13 @@ const KITCHEN_RECIPE_CARD_MAP: Record<
 
 export interface MasterIngredientRecord extends MasterIngredientSeed {
   updated_at: string;
+  previous_price: number;
+  price_variance_rp: number;
+  price_variance_pct: number;
+  monthly_variance_impact_rp: number;
+  is_volatile: boolean;
+  is_price_spiked: boolean;
+  is_price_dropped: boolean;
   effective_unit_cost: number; // Rp per base_unit after yield_pct
   cost_per_100_units: number; // Rp per 100g / 100ml / 1 pcs
   recipes_using_count: number;
@@ -1929,6 +1948,8 @@ export interface RecipeBomLineDetail {
   line_cost: number;
   share_of_food_cost_pct: number;
   prep_notes: string;
+  is_price_spiked?: boolean;
+  price_variance_pct?: number;
 }
 
 export interface RecipeCogsDetailRecord {
@@ -1964,6 +1985,8 @@ export interface RecipeCogsDetailRecord {
   total_gross_profit: number;
   variance_vs_target_pct: number;
   margin_status: 'healthy' | 'watch' | 'critical';
+  has_price_spike?: boolean;
+  spiked_ingredients_count?: number;
   lines: RecipeBomLineDetail[];
 }
 
@@ -1983,6 +2006,10 @@ export interface RecipesCogsDashboardData {
     healthyRecipesCount: number;
     watchlistRecipesCount: number;
     criticalRecipesCount: number;
+    priceSpikeCount: number;
+    priceDropCount: number;
+    netMonthlyInflationImpactRp: number;
+    volatileIngredientsCount: number;
   };
   ingredients: MasterIngredientRecord[];
   recipes: RecipeCogsDetailRecord[];
@@ -2026,6 +2053,7 @@ export async function getRecipesCogsDashboardData(
       purchase_qty: number;
       base_unit: BaseUnit;
       purchase_price: number;
+      previous_price?: number;
       yield_pct: number;
       updated_at: string;
     }>(`
@@ -2038,6 +2066,7 @@ export async function getRecipesCogsDashboardData(
         purchase_qty,
         base_unit,
         purchase_price,
+        COALESCE(previous_price, purchase_price) AS previous_price,
         yield_pct,
         updated_at
       FROM dim_ingredients
@@ -2133,10 +2162,31 @@ export async function getRecipesCogsDashboardData(
       Number(ing.purchase_qty),
       Number(ing.yield_pct)
     );
+    const currPrice = Number(ing.purchase_price);
+    const prevPrice = Number(ing.previous_price) > 0 ? Number(ing.previous_price) : currPrice;
+    const priceVarianceRp = currPrice - prevPrice;
+    const priceVariancePct = prevPrice > 0 ? Number(((priceVarianceRp / prevPrice) * 100).toFixed(1)) : 0;
+    const isVolatile = [
+      'Coffee & Tea',
+      'Dairy & Plant Milk',
+      'Plant Proteins & Eggs',
+      'Produce & Fungi',
+      'Sauces, Oils & Sweeteners',
+    ].includes(ing.category);
+    const isPriceSpiked = priceVariancePct >= 5;
+    const isPriceDropped = priceVariancePct <= -5;
+
     ingredientMap.set(ing.ingredient_id, {
       ...ing,
+      previous_price: prevPrice,
+      price_variance_rp: priceVarianceRp,
+      price_variance_pct: priceVariancePct,
+      monthly_variance_impact_rp: 0,
+      is_volatile: isVolatile,
+      is_price_spiked: isPriceSpiked,
+      is_price_dropped: isPriceDropped,
       purchase_qty: Number(ing.purchase_qty),
-      purchase_price: Number(ing.purchase_price),
+      purchase_price: currPrice,
       yield_pct: Number(ing.yield_pct),
       effective_unit_cost: effCost,
       cost_per_100_units: ing.base_unit === 'pcs' ? effCost : effCost * 100,
@@ -2237,8 +2287,13 @@ export async function getRecipesCogsDashboardData(
         line_cost: Math.round(lineCost),
         share_of_food_cost_pct: 0,
         prep_notes: ln.prep_notes || '',
+        is_price_spiked: ing ? ing.is_price_spiked : false,
+        price_variance_pct: ing ? ing.price_variance_pct : 0,
       };
     });
+
+    const spikedLinesCount = tempLines.filter((l) => l.is_price_spiked).length;
+    const hasPriceSpike = spikedLinesCount > 0;
 
     const rawFoodCost = hasItemizedLines
       ? Math.round(calcFood)
@@ -2348,15 +2403,41 @@ export async function getRecipesCogsDashboardData(
       total_gross_profit: Math.round(totalGrossProfit),
       variance_vs_target_pct: varianceVsTargetPct,
       margin_status: marginStatus,
+      has_price_spike: hasPriceSpike,
+      spiked_ingredients_count: spikedLinesCount,
       lines: tempLines,
     };
   });
 
-  const ingredientsList = Array.from(ingredientMap.values()).map((ing) => ({
-    ...ing,
-    monthly_units_consumed: Math.round(ing.monthly_units_consumed),
-    monthly_theoretical_spend: Math.round(ing.monthly_theoretical_spend),
-  }));
+  const ingredientsList = Array.from(ingredientMap.values()).map((ing) => {
+    const prevEffCost = computeEffectiveUnitCost(
+      ing.previous_price,
+      ing.purchase_qty,
+      ing.yield_pct
+    );
+    const effDelta = ing.effective_unit_cost - prevEffCost;
+    const monthlyUnits = Math.round(ing.monthly_units_consumed);
+    const varianceImpact = Math.round(monthlyUnits * effDelta);
+
+    return {
+      ...ing,
+      monthly_units_consumed: monthlyUnits,
+      monthly_theoretical_spend: Math.round(ing.monthly_theoretical_spend),
+      monthly_variance_impact_rp: varianceImpact,
+    };
+  });
+
+  let priceSpikeCount = 0;
+  let priceDropCount = 0;
+  let netMonthlyInflationImpactRp = 0;
+  let volatileIngredientsCount = 0;
+
+  for (const ing of ingredientsList) {
+    if (ing.is_volatile) volatileIngredientsCount += 1;
+    if (ing.is_price_spiked) priceSpikeCount += 1;
+    if (ing.is_price_dropped) priceDropCount += 1;
+    netMonthlyInflationImpactRp += ing.monthly_variance_impact_rp;
+  }
 
   // Category spend breakdown
   const catMap = new Map<string, { ingredientCount: number; monthlySpend: number }>();
@@ -2431,6 +2512,10 @@ export async function getRecipesCogsDashboardData(
       healthyRecipesCount,
       watchlistRecipesCount,
       criticalRecipesCount,
+      priceSpikeCount,
+      priceDropCount,
+      netMonthlyInflationImpactRp: Math.round(netMonthlyInflationImpactRp),
+      volatileIngredientsCount,
     },
     ingredients: ingredientsList,
     recipes: detailedRecipes,
@@ -2588,11 +2673,23 @@ export async function upsertMasterIngredient(input: UpsertMasterIngredientInput)
   const safeQty = Math.max(0.01, Number(input.purchase_qty) || 1);
   const safeYield = Math.max(10, Math.min(100, Number(input.yield_pct) || 100));
 
+  const existingRows = await query<{ purchase_price: number; previous_price: number }>(`
+    SELECT purchase_price, previous_price
+    FROM dim_ingredients
+    WHERE ingredient_id = '${sqlEscape(ingId)}'
+  `);
+
+  let prevPrice = safePrice;
+  if (existingRows.length > 0 && typeof existingRows[0].purchase_price === 'number') {
+    const oldPrice = Number(existingRows[0].purchase_price);
+    prevPrice = Math.round(oldPrice) !== Math.round(safePrice) ? oldPrice : (Number(existingRows[0].previous_price) || oldPrice);
+  }
+
   await execute(`DELETE FROM dim_ingredients WHERE ingredient_id = '${sqlEscape(ingId)}'`);
   await execute(`
     INSERT INTO dim_ingredients (
       ingredient_id, ingredient_name, category, supplier_name,
-      purchase_unit_label, purchase_qty, base_unit, purchase_price, yield_pct, updated_at
+      purchase_unit_label, purchase_qty, base_unit, purchase_price, previous_price, yield_pct, updated_at
     ) VALUES (
       '${sqlEscape(ingId)}',
       '${sqlEscape(input.ingredient_name.trim())}',
@@ -2602,6 +2699,7 @@ export async function upsertMasterIngredient(input: UpsertMasterIngredientInput)
       ${safeQty},
       '${sqlEscape(input.base_unit)}',
       ${safePrice},
+      ${prevPrice},
       ${safeYield},
       '${nowIso}'
     )
@@ -2712,6 +2810,14 @@ export async function bulkUpsertMasterIngredients(
   const nowIso = new Date().toISOString();
   const affectedIngIds: string[] = [];
 
+  const existingMap = new Map<string, { purchase_price: number; previous_price: number }>();
+  const existingRows = await query<{ ingredient_id: string; purchase_price: number; previous_price: number }>(`
+    SELECT ingredient_id, purchase_price, previous_price FROM dim_ingredients
+  `);
+  for (const r of existingRows) {
+    existingMap.set(r.ingredient_id, r);
+  }
+
   for (const ing of ingredients) {
     if (!ing.ingredient_name || ing.ingredient_name.trim().length === 0) continue;
 
@@ -2724,11 +2830,18 @@ export async function bulkUpsertMasterIngredients(
     const safeQty = Math.max(0.01, Number(ing.purchase_qty) || 1);
     const safeYield = Math.max(10, Math.min(100, Number(ing.yield_pct) || 100));
 
+    const existing = existingMap.get(ingId);
+    let prevPrice = safePrice;
+    if (existing) {
+      const oldPrice = Number(existing.purchase_price);
+      prevPrice = Math.round(oldPrice) !== Math.round(safePrice) ? oldPrice : (Number(existing.previous_price) || oldPrice);
+    }
+
     await execute(`DELETE FROM dim_ingredients WHERE ingredient_id = '${sqlEscape(ingId)}'`);
     await execute(`
       INSERT INTO dim_ingredients (
         ingredient_id, ingredient_name, category, supplier_name,
-        purchase_unit_label, purchase_qty, base_unit, purchase_price, yield_pct, updated_at
+        purchase_unit_label, purchase_qty, base_unit, purchase_price, previous_price, yield_pct, updated_at
       ) VALUES (
         '${sqlEscape(ingId)}',
         '${sqlEscape(ing.ingredient_name.trim())}',
@@ -2738,6 +2851,7 @@ export async function bulkUpsertMasterIngredients(
         ${safeQty},
         '${sqlEscape(ing.base_unit)}',
         ${safePrice},
+        ${prevPrice},
         ${safeYield},
         '${nowIso}'
       )
@@ -2876,6 +2990,84 @@ export async function bulkImportSync(payload: {
     recipesSaved,
     linesSaved,
     totalSyncedRecipes: finalSync.updatedRecipesCount,
+  };
+}
+
+export interface QuickPriceUpdateItem {
+  ingredient_id: string;
+  purchase_price: number;
+}
+
+/**
+ * Rapidly updates market purchase prices across multiple ingredients (from weekly shopping or vendor invoice)
+ * and automatically cascades recalculated COGS to all linked recipes.
+ */
+export async function quickUpdateMarketPrices(
+  updates: QuickPriceUpdateItem[]
+): Promise<{
+  updatedCount: number;
+  cascadedRecipesCount: number;
+  affectedRecipeIds: string[];
+}> {
+  await ensureRecipesCogsTables();
+  if (!updates || updates.length === 0) {
+    return { updatedCount: 0, cascadedRecipesCount: 0, affectedRecipeIds: [] };
+  }
+
+  const nowIso = new Date().toISOString();
+  const validUpdates = updates.filter(
+    (u) => u.ingredient_id && typeof u.purchase_price === 'number' && u.purchase_price >= 0
+  );
+
+  const affectedIngIds: string[] = [];
+
+  for (const item of validUpdates) {
+    const ingId = item.ingredient_id.trim();
+    const newPrice = Math.max(0, Number(item.purchase_price));
+
+    const currRows = await query<{ purchase_price: number; previous_price: number }>(`
+      SELECT purchase_price, previous_price
+      FROM dim_ingredients
+      WHERE ingredient_id = '${sqlEscape(ingId)}'
+    `);
+
+    if (currRows.length > 0) {
+      const oldPrice = Number(currRows[0].purchase_price);
+      const prevPrice = Math.round(oldPrice) !== Math.round(newPrice) ? oldPrice : (Number(currRows[0].previous_price) || oldPrice);
+
+      await execute(`
+        UPDATE dim_ingredients
+        SET
+          purchase_price = ${newPrice},
+          previous_price = ${prevPrice},
+          updated_at = '${nowIso}'
+        WHERE ingredient_id = '${sqlEscape(ingId)}'
+      `);
+      affectedIngIds.push(ingId);
+    }
+  }
+
+  let cascadedRecipesCount = 0;
+  let affectedRecipeIds: string[] = [];
+
+  if (affectedIngIds.length > 0) {
+    const inClause = affectedIngIds.map((id) => `'${sqlEscape(id)}'`).join(', ');
+    const usedInRows = await query<{ recipe_id: string }>(`
+      SELECT DISTINCT recipe_id
+      FROM fact_recipe_ingredients
+      WHERE ingredient_id IN (${inClause})
+    `);
+    affectedRecipeIds = usedInRows.map((r) => r.recipe_id);
+    if (affectedRecipeIds.length > 0) {
+      const syncRes = await syncDimRecipesFromIngredientLines(affectedRecipeIds);
+      cascadedRecipesCount = syncRes.updatedRecipesCount;
+    }
+  }
+
+  return {
+    updatedCount: affectedIngIds.length,
+    cascadedRecipesCount,
+    affectedRecipeIds,
   };
 }
 

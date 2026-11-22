@@ -162,7 +162,7 @@ ING-OAT-OATSIDE,Oatside Barista Blend,"Dairy & Plant Milk",Oatside Official,1 Li
           canonical_name: 'Espresso Single',
           category: 'Coffee',
           kitchen_recipe_card: 'Card #1',
-          audit_status: 'full_bom',
+          audit_status: 'verified_sheet',
           audit_note: 'Verified',
           bom_summary: '18g Espresso',
           raw_food_cost: 3150,

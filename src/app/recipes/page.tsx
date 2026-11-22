@@ -15,6 +15,7 @@ import {
   X,
   Boxes,
   FileSpreadsheet,
+  Zap,
 } from 'lucide-react';
 import { InventoryWorkbench } from '@/components/InventoryWorkbench';
 import { RecipesCatalogTab } from '@/components/recipes/RecipesCatalogTab';
@@ -24,6 +25,7 @@ import {
 } from '@/components/recipes/IngredientsCatalogTab';
 import { CogsSimulatorTab } from '@/components/recipes/CogsSimulatorTab';
 import { RecipeBulkSyncModal } from '@/components/recipes/RecipeBulkSyncModal';
+import { WeeklyMarketUpdateModal } from '@/components/recipes/WeeklyMarketUpdateModal';
 import {
   BRAND_OPTIONS,
   formatCompactRp,
@@ -44,6 +46,7 @@ export default function RecipesCogsCommandPage() {
   const [actionBusy, setActionBusy] = useState<boolean>(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [bulkSyncOpen, setBulkSyncOpen] = useState<boolean>(false);
+  const [marketUpdateOpen, setMarketUpdateOpen] = useState<boolean>(false);
 
   // Tab 1: Recipe Analyzer & BOM Workbench state
   const [recipeSearch, setRecipeSearch] = useState<string>('');
@@ -515,6 +518,16 @@ export default function RecipesCogsCommandPage() {
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button
               type="button"
+              onClick={() => setMarketUpdateOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-all cursor-pointer"
+              title="Papan Update Cepat Belanja Pasar Mingguan"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Update Belanja Pasar</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setBulkSyncOpen(true)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
               title="Sinkronisasi massal / Import-Export Excel & CSV data resep & bahan baku"
@@ -845,6 +858,7 @@ export default function RecipesCogsCommandPage() {
           onPopulateDefaultLines={handlePopulateDefaultLinesForRecipe}
           onAddDraftLine={handleAddDraftLine}
           onOpenBulkSync={() => setBulkSyncOpen(true)}
+          onOpenMarketUpdate={() => setMarketUpdateOpen(true)}
         />
       )}
 
@@ -861,6 +875,7 @@ export default function RecipesCogsCommandPage() {
           onSaveIngredient={handleSaveIngredient}
           actionBusy={actionBusy}
           onOpenBulkSync={() => setBulkSyncOpen(true)}
+          onOpenMarketUpdate={() => setMarketUpdateOpen(true)}
         />
       )}
 
@@ -885,6 +900,17 @@ export default function RecipesCogsCommandPage() {
           onSuccess={() => fetchDashboard(true)}
           currentIngredients={data?.ingredients || []}
           currentRecipes={data?.recipes || []}
+          showNotice={showNotice}
+        />
+      )}
+
+      {/* Weekly Market Quick Update Modal */}
+      {marketUpdateOpen && (
+        <WeeklyMarketUpdateModal
+          isOpen={marketUpdateOpen}
+          onClose={() => setMarketUpdateOpen(false)}
+          onSuccess={() => fetchDashboard(true)}
+          ingredients={data?.ingredients || []}
           showNotice={showNotice}
         />
       )}

@@ -8,6 +8,10 @@ import {
   Check,
   X,
   FileSpreadsheet,
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  Zap,
 } from "lucide-react";
 import type {
   RecipesCogsDashboardData,
@@ -44,6 +48,7 @@ export interface IngredientsCatalogTabProps {
   onSaveIngredient: (e: React.FormEvent) => void;
   actionBusy: boolean;
   onOpenBulkSync?: () => void;
+  onOpenMarketUpdate?: () => void;
 }
 
 export function IngredientsCatalogTab({
@@ -57,6 +62,7 @@ export function IngredientsCatalogTab({
   onSaveIngredient,
   actionBusy,
   onOpenBulkSync,
+  onOpenMarketUpdate,
 }: IngredientsCatalogTabProps) {
   // Filtered Master Ingredients for Tab 2
   const filteredIngredients = useMemo(() => {
@@ -105,6 +111,59 @@ export function IngredientsCatalogTab({
           );
         })}
       </div>
+
+      {/* Price Spike Alert Radar Banner */}
+      {data.summary.priceSpikeCount > 0 && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-[var(--bg-surface-2)] to-rose-500/10 border border-amber-500/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold font-display uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  Radar Lonjakan Harga Pasar ({data.summary.priceSpikeCount} Bahan Baku Naik &ge; 5%)
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                  +{formatCompactRp(data.summary.netMonthlyInflationImpactRp)} / bln
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Terdeteksi kenaikan harga beli pada bahan baku utama. Perbarui harga belanja pasar mingguan atau simulasikan penyesuaian harga jual menu.
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {data.ingredients
+                  .filter((i) => i.is_price_spiked)
+                  .slice(0, 5)
+                  .map((i) => (
+                    <span
+                      key={i.ingredient_id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono bg-[var(--bg-surface-3)] text-[var(--text-primary)] border border-[var(--border-subtle)]"
+                    >
+                      <span className="font-semibold">{i.ingredient_name.split('(')[0].trim()}</span>
+                      <span className="text-rose-500 font-bold">+{i.price_variance_pct}%</span>
+                      <span className="text-[var(--text-muted)]">({i.recipes_using_count} menu)</span>
+                    </span>
+                  ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenMarketUpdate && (
+              <button
+                type="button"
+                onClick={onOpenMarketUpdate}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-all cursor-pointer"
+                title="Buka Papan Update Cepat Belanja Pasar"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Update Belanja Pasar</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Ingredient Editor Drawer / Modal when editing or adding an ingredient */}
       {editingIngredient && (
@@ -346,6 +405,18 @@ export function IngredientsCatalogTab({
               />
             </div>
 
+            {onOpenMarketUpdate && (
+              <button
+                type="button"
+                onClick={onOpenMarketUpdate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-all cursor-pointer shadow-2xs"
+                title="Papan Update Cepat Belanja Pasar Mingguan"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Update Belanja Pasar</span>
+              </button>
+            )}
+
             {onOpenBulkSync && (
               <button
                 type="button"
@@ -419,8 +490,33 @@ export function IngredientsCatalogTab({
                       ({ing.purchase_qty.toLocaleString()} {ing.base_unit})
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-right font-mono font-semibold text-[var(--text-primary)]">
-                    {formatRp(ing.purchase_price)}
+                  <td className="py-3 px-3 text-right font-mono">
+                    <div className="font-semibold text-[var(--text-primary)]">
+                      {formatRp(ing.purchase_price)}
+                    </div>
+                    {ing.price_variance_pct !== 0 ? (
+                      <div className="flex items-center justify-end gap-1 text-[10px] mt-0.5">
+                        {ing.price_variance_pct > 0 ? (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-rose-500 font-semibold"
+                            title={`Naik dari Rp ${ing.previous_price.toLocaleString('id-ID')}`}
+                          >
+                            <TrendingUp className="w-3 h-3" />
+                            +{ing.price_variance_pct}%
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-emerald-500 font-semibold"
+                            title={`Turun dari Rp ${ing.previous_price.toLocaleString('id-ID')}`}
+                          >
+                            <TrendingDown className="w-3 h-3" />
+                            {ing.price_variance_pct}%
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Stabil</div>
+                    )}
                   </td>
                   <td className="py-3 px-3 text-right font-mono text-[var(--text-secondary)]">
                     {ing.yield_pct}%

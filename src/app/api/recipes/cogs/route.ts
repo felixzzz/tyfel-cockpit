@@ -10,8 +10,10 @@ import {
   bulkUpsertMasterIngredients,
   bulkSaveRecipeIngredientLines,
   bulkImportSync,
+  quickUpdateMarketPrices,
   UpsertMasterIngredientInput,
   SaveRecipeLinesInput,
+  QuickPriceUpdateItem,
 } from '@/lib/recipesCogs';
 
 export async function GET(req: NextRequest) {
@@ -152,6 +154,28 @@ export async function POST(req: NextRequest) {
         ok: true,
         ...res,
         message: `Tersimpan ${res.totalLinesSaved} baris takaran pada ${res.recipesSaved} resep.`,
+      });
+    }
+
+    if (action === 'quick_update_prices') {
+      const updates = body.updates as QuickPriceUpdateItem[];
+      if (!Array.isArray(updates)) {
+        return NextResponse.json(
+          { ok: false, error: 'updates array is required' },
+          { status: 400 }
+        );
+      }
+
+      const res = await quickUpdateMarketPrices(updates);
+
+      revalidatePath('/');
+      revalidatePath('/recipes');
+      revalidatePath('/brands/[brandId]', 'page');
+
+      return NextResponse.json({
+        ok: true,
+        ...res,
+        message: `Berhasil memperbarui ${res.updatedCount} harga bahan pasar. HPP pada ${res.cascadedRecipesCount} resep telah otomatis dihitung ulang.`,
       });
     }
 

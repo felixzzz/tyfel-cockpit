@@ -1031,7 +1031,7 @@ export async function initializeCateringSchemaAndSeed(
 
     globalForCatering.__fnbCateringSchemaEnsured = true;
   } catch (err) {
-    console.warn('[DuckDB Catering Seed Notice]', err);
+    console.warn('[Database Catering Seed Notice]', err);
   } finally {
     try {
       conn.closeSync();

@@ -9,6 +9,7 @@ import {
   Sparkles,
   Layers,
   FileSpreadsheet,
+  Zap,
 } from "lucide-react";
 import type {
   RecipesCogsDashboardData,
@@ -41,6 +42,7 @@ export interface RecipesCatalogTabProps {
   onPopulateDefaultLines: () => void;
   onAddDraftLine: (role: ComponentRole) => void;
   onOpenBulkSync?: () => void;
+  onOpenMarketUpdate?: () => void;
 }
 
 export function RecipesCatalogTab({
@@ -63,6 +65,7 @@ export function RecipesCatalogTab({
   onPopulateDefaultLines,
   onAddDraftLine,
   onOpenBulkSync,
+  onOpenMarketUpdate,
 }: RecipesCatalogTabProps) {
   // Filtered recipes for Tab 1
   const filteredRecipes = useMemo(() => {
@@ -159,6 +162,18 @@ export function RecipesCatalogTab({
                 />
               </div>
 
+              {onOpenMarketUpdate && (
+                <button
+                  type="button"
+                  onClick={onOpenMarketUpdate}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-all cursor-pointer shrink-0 shadow-2xs"
+                  title="Papan Update Cepat Belanja Pasar Mingguan"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Update Belanja Pasar</span>
+                </button>
+              )}
+
               {onOpenBulkSync && (
                 <button
                   type="button"
@@ -239,6 +254,14 @@ export function RecipesCatalogTab({
                             {rec.has_itemized_lines && (
                               <span className="text-emerald-600 dark:text-emerald-400">
                                 · {rec.lines.length} lines
+                              </span>
+                            )}
+                            {rec.has_price_spike && (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-rose-500 font-semibold"
+                                title={`${rec.spiked_ingredients_count} bahan mengalami kenaikan harga pasar`}
+                              >
+                                · ⚠️ Inflasi Bahan
                               </span>
                             )}
                           </div>
@@ -549,7 +572,12 @@ export function RecipesCatalogTab({
                       </div>
 
                       <div className="col-span-4 text-right font-mono font-semibold text-[var(--text-primary)]">
-                        {formatRp(ln.lineCost)}
+                        <div>{formatRp(ln.lineCost)}</div>
+                        {ln.ingredient?.is_price_spiked && (
+                          <div className="text-[9px] text-rose-500 font-bold">
+                            +{ln.ingredient.price_variance_pct}% spike
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
