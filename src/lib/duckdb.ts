@@ -1126,7 +1126,7 @@ export async function initializeSchemaAndSeed(db: DuckDBInstance, isRemoteHttp =
       await conn.run(`CHECKPOINT;`);
     }
   } catch (err) {
-    console.warn('[DuckDB Seed Notice] Could not write dim_recipes / dim_order_cancellations on init:', err);
+    console.warn('[Database Seed Notice] Could not write dim_recipes / dim_order_cancellations on init:', err);
   } finally {
     try {
       conn.closeSync();
@@ -1564,7 +1564,7 @@ export async function runQuery<T = Record<string, unknown>>(sql: string): Promis
 
       return mapped;
     } catch (error) {
-      console.error('[DuckDB Query Error]', error, 'SQL:', sql);
+      console.error('[Database Query Error]', error, 'SQL:', sql);
       throw error;
     } finally {
       if (cacheable) {

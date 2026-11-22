@@ -241,7 +241,7 @@ function formatExcelCell(cell: XLSX.CellObject | undefined, colHeader: string): 
 /**
  * Converts an Excel spreadsheet buffer into a normalized standard CSV string.
  * Automatically chooses the most relevant sheet (e.g. Absensi, Detail Penjualan, Orders)
- * and formats date and time cells consistently so downstream DuckDB and parsers can read it.
+ * and formats date and time cells consistently so downstream database ingest and parsers can read it.
  */
 export function convertExcelToCsv(buffer: Buffer): {
   csv: string;
