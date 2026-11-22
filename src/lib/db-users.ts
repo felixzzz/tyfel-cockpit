@@ -14,7 +14,7 @@ import {
 // ─── SQL Sanitization ────────────────────────────────────────────────────────
 // Defence-in-depth: strip null bytes, escape single quotes, validate against
 // SQL injection patterns. This is not a substitute for parameterized queries,
-// but DuckDB's node-api doesn't support prepared-statement params in run().
+// but our raw query runner doesn't support prepared-statement params in run().
 
 function safeSqlString(val: string): string {
   // Strip null bytes (can bypass escaping in some drivers)
