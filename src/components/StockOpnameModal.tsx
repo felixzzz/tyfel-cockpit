@@ -8,7 +8,9 @@ import {
   CheckCircle2,
   RefreshCw,
   Search,
+  Printer,
 } from 'lucide-react';
+import { PrintableStockOpnameSheet } from '@/components/inventory/PrintableStockOpnameSheet';
 
 interface StockOpnameModalProps {
   isOpen: boolean;
@@ -39,6 +41,7 @@ export function StockOpnameModal({
   const [submitting, setSubmitting] = useState(false);
   const [auditResult, setAuditResult] = useState<StockOpnameAuditRecord | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isPrintSheetOpen, setIsPrintSheetOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -231,10 +234,18 @@ export function StockOpnameModal({
               </table>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsPrintSheetOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-surface-elevated hover:bg-surface border border-border text-foreground rounded-xl transition-colors cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Cetak Lembar Fisik</span>
+              </button>
               <button
                 onClick={onClose}
-                className="px-5 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-xl"
+                className="px-5 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-xl cursor-pointer"
               >
                 Close Audit Workbench
               </button>
@@ -306,6 +317,14 @@ export function StockOpnameModal({
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPrintSheetOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-emerald-600/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-600/25 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Cetak Lembar Opname</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleSetAllToSystem}
@@ -400,6 +419,14 @@ export function StockOpnameModal({
           </div>
         )}
       </div>
+
+      <PrintableStockOpnameSheet
+        isOpen={isPrintSheetOpen}
+        onClose={() => setIsPrintSheetOpen(false)}
+        ingredients={ingredients}
+        defaultBranch={branch}
+        defaultConductedBy={conductedBy}
+      />
     </div>
   );
 }

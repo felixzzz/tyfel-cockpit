@@ -11,6 +11,7 @@ import {
   DollarSign,
   Zap,
   ClipboardCheck,
+  Printer,
 } from 'lucide-react';
 import type {
   IngredientInventoryItem,
@@ -18,6 +19,7 @@ import type {
   InventoryTransactionRecord,
 } from '@/lib/inventory';
 import { StockOpnameModal } from '@/components/StockOpnameModal';
+import { PrintableStockOpnameSheet } from '@/components/inventory/PrintableStockOpnameSheet';
 
 function formatRp(val: number): string {
   return `Rp ${Math.round(Number(val) || 0).toLocaleString('id-ID')}`;
@@ -39,6 +41,7 @@ export function InventoryWorkbench() {
   const [actionBusy, setActionBusy] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isOpnameModalOpen, setIsOpnameModalOpen] = useState(false);
+  const [isPrintSheetOpen, setIsPrintSheetOpen] = useState(false);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -300,10 +303,18 @@ export function InventoryWorkbench() {
             </button>
             <button
               onClick={() => setIsOpnameModalOpen(true)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition cursor-pointer"
             >
               <ClipboardCheck className="w-3.5 h-3.5" />
               <span>Stock Opname</span>
+            </button>
+            <button
+              onClick={() => setIsPrintSheetOpen(true)}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[var(--bg-main)] hover:bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[var(--text-main)] shadow-sm transition cursor-pointer"
+              title="Print Physical Count Sheet"
+            >
+              <Printer className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Print Sheet</span>
             </button>
           </div>
         </div>
@@ -692,6 +703,13 @@ export function InventoryWorkbench() {
         onClose={() => setIsOpnameModalOpen(false)}
         ingredients={items}
         onCommitted={fetchInventory}
+      />
+
+      {/* Printable Physical Count Sheet */}
+      <PrintableStockOpnameSheet
+        isOpen={isPrintSheetOpen}
+        onClose={() => setIsPrintSheetOpen(false)}
+        ingredients={items}
       />
     </div>
   );
