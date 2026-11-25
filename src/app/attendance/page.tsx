@@ -9,6 +9,8 @@ import {
   Sun,
   Maximize2,
   Minimize2,
+  Edit3,
+  Lock,
 } from "lucide-react";
 import type {
   AttendanceCycleReport,
@@ -815,6 +817,37 @@ export default function AttendancePayrollPage() {
                       </>
                     )}
                   </button>
+
+                  {/* Period Override Editor Toggle */}
+                  {report.is_editable ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingSlip(!isEditingSlip)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        isEditingSlip ? "badge-amber" : "badge-emerald"
+                      }`}
+                      title={
+                        isEditingSlip
+                          ? "Close Period Override Editor"
+                          : `Override rates, counts, allowances, or kasbon for ${report.salary_code}`
+                      }
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>
+                        {isEditingSlip
+                          ? "Close Editor"
+                          : `Override (${report.salary_code})`}
+                      </span>
+                    </button>
+                  ) : (
+                    <span
+                      className="px-2.5 py-1.5 rounded-lg text-xs font-mono flex items-center gap-1.5 badge-blue cursor-not-allowed"
+                      title="In-progress periods can be viewed live, but overrides are locked until the period closes"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>In Progress (Read-Only)</span>
+                    </span>
+                  )}
 
                   {/* Print Official Payslip Trigger */}
                   <button
