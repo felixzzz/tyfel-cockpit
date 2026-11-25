@@ -22,6 +22,9 @@ import {
   Copy,
   Check,
   Download,
+  Users,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 export interface EodDigestContext {
@@ -50,14 +53,16 @@ export function DataFreshnessBar({
   compact = false,
   digestContext,
 }: DataFreshnessBarProps) {
-  const { klikit, dineInPos, itemCoverage } = freshness;
+  const { klikit, dineInPos, attendance, itemCoverage } = freshness;
   const isPosSynced = dineInPos.orderCount > 0;
+  const isAttendanceSynced = Boolean(attendance && attendance.orderCount > 0);
   const coveragePct = itemCoverage?.orderCoveragePct ?? 100;
   const orphanCount = itemCoverage?.orphanOrdersCount ?? 0;
 
   const [digestOpen, setDigestOpen] = useState(false);
   const [digestFormat, setDigestFormat] = useState<"whatsapp" | "markdown">("whatsapp");
   const [copied, setCopied] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const generatedDigestText = useMemo(() => {
     if (!digestContext) return "";
@@ -103,6 +108,9 @@ export function DataFreshnessBar({
         `*F&B OPS EOD EXECUTIVE DIGEST*`,
         `Scope: ${filterLabel}`,
         `Data Coverage: ${freshness.overallCoverage}`,
+        `• Klikit Delivery: ${klikit.orderCount.toLocaleString()} orders (Last: ${klikit.lastOrderFormatted})`,
+        `• POS Majoo: ${dineInPos.orderCount.toLocaleString()} orders (Last: ${dineInPos.lastOrderFormatted})`,
+        `• Absensi Majoo: ${attendance ? `${attendance.orderCount.toLocaleString()} logs (Last: ${attendance.lastOrderFormatted})` : 'N/A'}`,
         `────────────────────────`,
         `*1. PORTFOLIO REVENUE & REALIZATION*`,
         `• Gross GMV: *${formatRp(summary.total_gross_gmv)}*${gmvDeltaStr}`,
@@ -151,7 +159,8 @@ export function DataFreshnessBar({
       `- **Filter Scope**: ${filterLabel}`,
       `- **Transaction Window**: ${freshness.overallCoverage}`,
       `- **Klikit Delivery**: ${klikit.orderCount.toLocaleString()} orders (${klikit.lastOrderFormatted})`,
-      `- **Greenville POS**: ${dineInPos.orderCount.toLocaleString()} orders (${dineInPos.lastOrderFormatted})`,
+      `- **POS Majoo**: ${dineInPos.orderCount.toLocaleString()} orders (${dineInPos.lastOrderFormatted})`,
+      `- **Absensi Majoo**: ${attendance ? `${attendance.orderCount.toLocaleString()} logs (${attendance.lastOrderFormatted})` : 'N/A'}`,
       ``,
       `## 1. Executive Revenue & Realization`,
       `| Metric | Value | Benchmark / Delta |`,
@@ -195,7 +204,7 @@ export function DataFreshnessBar({
     }
 
     return mdLines.join("\n");
-  }, [digestContext, digestFormat, freshness.overallCoverage, klikit, dineInPos]);
+  }, [digestContext, digestFormat, freshness.overallCoverage, klikit, dineInPos, attendance]);
 
   const handleCopyDigest = async () => {
     if (!generatedDigestText) return;
@@ -219,6 +228,309 @@ export function DataFreshnessBar({
     URL.revokeObjectURL(url);
   };
 
+  const renderCards = () => (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Card 1: Klikit Aggregator */}
+      <div className="cockpit-panel rounded-2xl p-5 space-y-4 relative overflow-hidden cockpit-glow-emerald">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-500">
+              <ShoppingBag className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
+                  {klikit.sourceName}
+                </h3>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold badge-emerald">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  LIVE PIPELINE
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                {klikit.channelType} · {klikit.branchCoverage}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {digestContext && (
+              <button
+                type="button"
+                onClick={() => setDigestOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-semibold badge-sky hover:opacity-90 transition-all cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>EOD Digest</span>
+              </button>
+            )}
+            <Link
+              href="/ingest"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium surface-well hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Upload Batch</span>
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
+          <div className="surface-well rounded-xl p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
+              <CalendarClock className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Last Imported</span>
+            </div>
+            <div className="font-mono font-semibold text-[var(--text-primary)] text-xs">
+              {klikit.lastImportedFormatted}
+            </div>
+            <div
+              className="text-[11px] font-mono text-[var(--text-muted)] mt-1 truncate"
+              title={klikit.sourceFile || ""}
+            >
+              {klikit.sourceFile || "klikit_orders.csv"}
+            </div>
+          </div>
+
+          <div className="surface-well rounded-xl p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
+              <Clock className="w-3.5 h-3.5 text-sky-500" />
+              <span>Last Transaction</span>
+            </div>
+            <div className="font-mono font-semibold text-[var(--text-primary)] text-xs">
+              {klikit.lastOrderFormatted}
+            </div>
+            <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
+              {klikit.orderCount.toLocaleString()} orders indexed
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 2: POS Majoo (Dine-in / Direct) */}
+      <div
+        className={`cockpit-panel rounded-2xl p-5 space-y-4 relative overflow-hidden ${
+          isPosSynced ? "cockpit-glow-emerald" : "cockpit-glow-amber"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className={`p-2.5 rounded-xl border ${
+                isPosSynced
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+              }`}
+            >
+              <UtensilsCrossed className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
+                  {dineInPos.sourceName}
+                </h3>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold ${
+                    isPosSynced ? "badge-emerald" : "badge-amber"
+                  }`}
+                >
+                  {isPosSynced ? (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      SYNCED IN DB
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-3 h-3" />
+                      AWAITING INGESTION
+                    </>
+                  )}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                {dineInPos.channelType} · {dineInPos.branchCoverage}
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/ingest"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium surface-well hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Upload POS</span>
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
+          <div className="surface-well rounded-xl p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
+              <CalendarClock
+                className={`w-3.5 h-3.5 ${isPosSynced ? "text-emerald-500" : "text-amber-500"}`}
+              />
+              <span>Last Imported</span>
+            </div>
+            <div
+              className={`font-mono font-semibold text-xs ${
+                isPosSynced ? "text-[var(--text-primary)]" : "text-amber-600 dark:text-amber-300"
+              }`}
+            >
+              {dineInPos.lastImportedFormatted}
+            </div>
+            <div
+              className="text-[11px] font-mono text-[var(--text-muted)] mt-1 truncate"
+              title={dineInPos.sourceFile || ""}
+            >
+              {dineInPos.sourceFile || "Awaiting POS CSV drop"}
+            </div>
+          </div>
+
+          <div className="surface-well rounded-xl p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
+              <Clock
+                className={`w-3.5 h-3.5 ${isPosSynced ? "text-sky-500" : "text-amber-500"}`}
+              />
+              <span>Last Transaction</span>
+            </div>
+            <div
+              className={`font-mono font-semibold text-xs ${
+                isPosSynced ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+              }`}
+            >
+              {dineInPos.lastOrderFormatted}
+            </div>
+            <div
+              className={`text-[11px] font-mono font-semibold mt-1 ${
+                isPosSynced
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-amber-600 dark:text-amber-400"
+              }`}
+            >
+              {isPosSynced
+                ? `${dineInPos.orderCount.toLocaleString()} orders indexed`
+                : "0 dine-in orders"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 3: Absensi Majoo (Attendance) */}
+      <div
+        className={`cockpit-panel rounded-2xl p-5 space-y-4 relative overflow-hidden ${
+          isAttendanceSynced ? "cockpit-glow-emerald" : "cockpit-glow-amber"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className={`p-2.5 rounded-xl border ${
+                isAttendanceSynced
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+              }`}
+            >
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
+                  {attendance?.sourceName || "Absensi Majoo"}
+                </h3>
+                <span
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold ${
+                    isAttendanceSynced ? "badge-emerald" : "badge-amber"
+                  }`}
+                >
+                  {isAttendanceSynced ? (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      SYNCED IN DB
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-3 h-3" />
+                      AWAITING FILE
+                    </>
+                  )}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                {attendance?.channelType || "Presensi Karyawan & Fingerprint"} · {attendance?.branchCoverage || "Tyfel Coffee Staff"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/attendance"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium surface-well hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
+            >
+              <Users className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Payroll</span>
+            </Link>
+            <Link
+              href="/ingest"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium surface-well hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Upload</span>
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
+          <div className="surface-well rounded-xl p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
+              <CalendarClock
+                className={`w-3.5 h-3.5 ${isAttendanceSynced ? "text-emerald-500" : "text-amber-500"}`}
+              />
+              <span>Last Imported / File</span>
+            </div>
+            <div
+              className={`font-mono font-semibold text-xs ${
+                isAttendanceSynced ? "text-[var(--text-primary)]" : "text-amber-600 dark:text-amber-300"
+              }`}
+            >
+              {attendance?.lastImportedFormatted || "Belum ada file"}
+            </div>
+            <div
+              className="text-[11px] font-mono text-[var(--text-muted)] mt-1 truncate"
+              title={attendance?.sourceFile || ""}
+            >
+              {attendance?.sourceFile || "Awaiting attendance CSV"}
+            </div>
+          </div>
+
+          <div className="surface-well rounded-xl p-3">
+            <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
+              <Clock
+                className={`w-3.5 h-3.5 ${isAttendanceSynced ? "text-sky-500" : "text-amber-500"}`}
+              />
+              <span>Last Date Recorded</span>
+            </div>
+            <div
+              className={`font-mono font-semibold text-xs ${
+                isAttendanceSynced ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
+              }`}
+            >
+              {attendance?.lastOrderFormatted || "Belum ada data"}
+            </div>
+            <div
+              className={`text-[11px] font-mono font-semibold mt-1 ${
+                isAttendanceSynced
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-amber-600 dark:text-amber-400"
+              }`}
+            >
+              {isAttendanceSynced
+                ? `${attendance.orderCount.toLocaleString()} logs presensi`
+                : "0 presensi"}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   if (compact) {
     return (
       <>
@@ -228,42 +540,89 @@ export function DataFreshnessBar({
             <span className="font-mono uppercase text-xs tracking-wider font-semibold text-[var(--text-secondary)]">
               Data Streams:
             </span>
+            <button
+              type="button"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-medium surface-well hover:bg-[var(--bg-surface-3)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+              title={isExpanded ? "Sembunyikan kartu detail data streams" : "Tampilkan detail lengkap 3 stream data (Klikit, POS Majoo, Absensi)"}
+            >
+              <span>{isExpanded ? "Tutup" : "Detail"}</span>
+              {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             {/* Klikit Pill */}
-            <div className="flex items-center gap-2 surface-well rounded-lg px-3 py-1.5">
+            <div
+              className="flex items-center gap-2 surface-well rounded-lg px-3 py-1.5 cursor-help"
+              title={`Klikit Delivery Aggregator\nTransaksi Terakhir: ${klikit.lastOrderFormatted}\nDiimpor: ${klikit.lastImportedFormatted}\nFile: ${klikit.sourceFile || "klikit_orders.csv"}`}
+            >
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-[var(--text-secondary)]">Klikit Delivery:</span>
+              <span className="text-[var(--text-secondary)]">Klikit:</span>
               <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-300">
-                {klikit.orderCount.toLocaleString()} orders
+                {klikit.orderCount.toLocaleString()} ord
               </span>
               <span className="text-[var(--text-muted)] font-mono text-xs">
                 · {klikit.lastOrderFormatted.split(",")[0]}
               </span>
             </div>
 
-            {/* POS Pill */}
-            <div className="flex items-center gap-2 surface-well rounded-lg px-3 py-1.5">
+            {/* POS Majoo Pill */}
+            <div
+              className="flex items-center gap-2 surface-well rounded-lg px-3 py-1.5 cursor-help"
+              title={`POS Majoo (Greenville Flagship)\nTransaksi Terakhir: ${dineInPos.lastOrderFormatted}\nDiimpor: ${dineInPos.lastImportedFormatted}\nFile: ${dineInPos.sourceFile || "majoo_pos.csv"}`}
+            >
               {isPosSynced ? (
                 <>
                   <span className="relative flex h-2 w-2">
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  <span className="text-[var(--text-secondary)]">Greenville POS:</span>
+                  <span className="text-[var(--text-secondary)]">POS Majoo:</span>
                   <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-300">
-                    {dineInPos.orderCount.toLocaleString()} orders
+                    {dineInPos.orderCount.toLocaleString()} ord
+                  </span>
+                  <span className="text-[var(--text-muted)] font-mono text-xs">
+                    · {dineInPos.lastOrderFormatted.split(",")[0]}
                   </span>
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full bg-amber-500"></span>
-                  <span className="text-[var(--text-secondary)]">Greenville POS:</span>
+                  <span className="text-[var(--text-secondary)]">POS Majoo:</span>
                   <span className="font-mono text-xs badge-amber px-1.5 py-0.5 rounded">
                     Awaiting EOD Drop
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Absensi Majoo Pill */}
+            <div
+              className="flex items-center gap-2 surface-well rounded-lg px-3 py-1.5 cursor-help"
+              title={`Absensi Majoo (Karyawan Tyfel Coffee)\nPresensi Terakhir: ${attendance?.lastOrderFormatted || "Belum ada data"}\nDiimpor: ${attendance?.lastImportedFormatted || "N/A"}\nFile: ${attendance?.sourceFile || "majoo_attendance.csv"}`}
+            >
+              {isAttendanceSynced ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-[var(--text-secondary)]">Absensi:</span>
+                  <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-300">
+                    {attendance.orderCount.toLocaleString()} logs
+                  </span>
+                  <span className="text-[var(--text-muted)] font-mono text-xs">
+                    · {attendance.lastOrderFormatted.split(",")[0]}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                  <span className="text-[var(--text-secondary)]">Absensi:</span>
+                  <span className="font-mono text-xs badge-amber px-1.5 py-0.5 rounded">
+                    Awaiting Absensi
                   </span>
                 </>
               )}
@@ -277,7 +636,7 @@ export function DataFreshnessBar({
                     coveragePct >= 95 ? "bg-emerald-500" : "bg-amber-500"
                   }`}
                 />
-                <span className="text-[var(--text-secondary)]">Item BOM Linkage:</span>
+                <span className="text-[var(--text-secondary)]">BOM Link:</span>
                 <span
                   className={`font-mono font-semibold ${
                     coveragePct >= 95
@@ -285,8 +644,7 @@ export function DataFreshnessBar({
                       : "text-amber-600 dark:text-amber-300"
                   }`}
                 >
-                  {coveragePct}% ({itemCoverage.ordersWithItems.toLocaleString()}/
-                  {itemCoverage.totalOrders.toLocaleString()})
+                  {coveragePct}%
                 </span>
               </div>
             )}
@@ -311,6 +669,13 @@ export function DataFreshnessBar({
             </Link>
           </div>
         </div>
+
+        {isExpanded && (
+          <div className="mt-3.5 animate-fadeIn">
+            {renderCards()}
+          </div>
+        )}
+
         {digestOpen && digestContext && (
           <EodDigestModal
             onClose={() => setDigestOpen(false)}
@@ -328,190 +693,7 @@ export function DataFreshnessBar({
 
   return (
     <div className="space-y-3.5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Card 1: Klikit Aggregator */}
-        <div className="cockpit-panel rounded-2xl p-5 space-y-4 relative overflow-hidden cockpit-glow-emerald">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-500">
-                <ShoppingBag className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
-                    {klikit.sourceName}
-                  </h3>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold badge-emerald">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    LIVE PIPELINE
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                  {klikit.channelType} · {klikit.branchCoverage}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {digestContext && (
-                <button
-                  type="button"
-                  onClick={() => setDigestOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono font-semibold badge-sky hover:opacity-90 transition-all cursor-pointer"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>EOD Digest</span>
-                </button>
-              )}
-              <Link
-                href="/ingest"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium surface-well hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
-              >
-                <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Upload Batch</span>
-              </Link>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
-            <div className="surface-well rounded-xl p-3">
-              <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
-                <CalendarClock className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Last Imported</span>
-              </div>
-              <div className="font-mono font-semibold text-[var(--text-primary)] text-xs">
-                {klikit.lastImportedFormatted}
-              </div>
-              <div
-                className="text-[11px] font-mono text-[var(--text-muted)] mt-1 truncate"
-                title={klikit.sourceFile || ""}
-              >
-                {klikit.sourceFile || "klikit_orders.csv"}
-              </div>
-            </div>
-
-            <div className="surface-well rounded-xl p-3">
-              <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
-                <Clock className="w-3.5 h-3.5 text-sky-500" />
-                <span>Last Transaction</span>
-              </div>
-              <div className="font-mono font-semibold text-[var(--text-primary)] text-xs">
-                {klikit.lastOrderFormatted}
-              </div>
-              <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-semibold mt-1">
-                {klikit.orderCount.toLocaleString()} orders indexed
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: Greenville POS (Dine-in) */}
-        <div
-          className={`cockpit-panel rounded-2xl p-5 space-y-4 relative overflow-hidden ${
-            isPosSynced ? "cockpit-glow-emerald" : "cockpit-glow-amber"
-          }`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div
-                className={`p-2.5 rounded-xl border ${
-                  isPosSynced
-                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                    : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                }`}
-              >
-                <UtensilsCrossed className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
-                    {dineInPos.sourceName}
-                  </h3>
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold ${
-                      isPosSynced ? "badge-emerald" : "badge-amber"
-                    }`}
-                  >
-                    {isPosSynced ? (
-                      <>
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                        SYNCED IN DB
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="w-3 h-3" />
-                        AWAITING INGESTION
-                      </>
-                    )}
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                  {dineInPos.channelType} · {dineInPos.branchCoverage}
-                </p>
-              </div>
-            </div>
-
-            <Link
-              href="/ingest"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium surface-well hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all"
-            >
-              <UploadCloud className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Upload POS</span>
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
-            <div className="surface-well rounded-xl p-3">
-              <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
-                <CalendarClock
-                  className={`w-3.5 h-3.5 ${isPosSynced ? "text-emerald-500" : "text-amber-500"}`}
-                />
-                <span>Last Imported</span>
-              </div>
-              <div
-                className={`font-mono font-semibold text-xs ${
-                  isPosSynced ? "text-[var(--text-primary)]" : "text-amber-600 dark:text-amber-300"
-                }`}
-              >
-                {dineInPos.lastImportedFormatted}
-              </div>
-              <div
-                className="text-[11px] font-mono text-[var(--text-muted)] mt-1 truncate"
-                title={dineInPos.sourceFile || ""}
-              >
-                {dineInPos.sourceFile || "Awaiting POS CSV drop"}
-              </div>
-            </div>
-
-            <div className="surface-well rounded-xl p-3">
-              <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] mb-1">
-                <Clock
-                  className={`w-3.5 h-3.5 ${isPosSynced ? "text-sky-500" : "text-amber-500"}`}
-                />
-                <span>Last Transaction</span>
-              </div>
-              <div
-                className={`font-mono font-semibold text-xs ${
-                  isPosSynced ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
-                }`}
-              >
-                {dineInPos.lastOrderFormatted}
-              </div>
-              <div
-                className={`text-[11px] font-mono font-semibold mt-1 ${
-                  isPosSynced
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-amber-600 dark:text-amber-400"
-                }`}
-              >
-                {isPosSynced
-                  ? `${dineInPos.orderCount.toLocaleString()} orders indexed`
-                  : "0 dine-in orders"}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {renderCards()}
 
       {/* Track A: Order-to-Item Coverage & Reconciliation Audit Banner */}
       {itemCoverage && (

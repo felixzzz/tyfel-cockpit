@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { requireAuth } from '@/lib/session';
 import { processUploadedFile, getRawFilesAudit, IngestSummary } from '@/lib/ingest';
-import { getOrderItemCoverageAudit } from '@/lib/queries';
+import { getOrderItemCoverageAudit, getDataFreshness } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,11 +11,12 @@ export async function GET(req: NextRequest) {
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
-    const [rawFiles, coverageAudit] = await Promise.all([
+    const [rawFiles, coverageAudit, freshness] = await Promise.all([
       getRawFilesAudit(),
       getOrderItemCoverageAudit(),
+      getDataFreshness(),
     ]);
-    return NextResponse.json({ success: true, files: rawFiles, coverageAudit });
+    return NextResponse.json({ success: true, files: rawFiles, coverageAudit, freshness });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ success: false, error: msg }, { status: 500 });

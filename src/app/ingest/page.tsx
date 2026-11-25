@@ -14,7 +14,10 @@ import {
   Store,
   ExternalLink,
   Info,
+  ShoppingBag,
+  Users,
 } from "lucide-react";
+import type { DataFreshnessSummary } from "@/lib/queries";
 
 interface StagedFile {
   file: File;
@@ -186,6 +189,7 @@ export default function IngestPage() {
   const [uploadErrors, setUploadErrors] = useState<{ fileName: string; error: string }[]>([]);
   const [rawFiles, setRawFiles] = useState<RawFileAudit[]>([]);
   const [coverageAudit, setCoverageAudit] = useState<CoverageAuditState | null>(null);
+  const [freshness, setFreshness] = useState<DataFreshnessSummary | null>(null);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -199,6 +203,9 @@ export default function IngestPage() {
       }
       if (data.success && data.coverageAudit) {
         setCoverageAudit(data.coverageAudit);
+      }
+      if (data.success && data.freshness) {
+        setFreshness(data.freshness);
       }
     } catch (err) {
       console.error("Failed to load raw files:", err);
@@ -327,6 +334,119 @@ export default function IngestPage() {
           </div>
         </div>
       </div>
+
+      {/* 3-Stream Live Freshness & Cutoff Status Cards */}
+      {freshness && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 1: Klikit Aggregator */}
+          <div className="cockpit-panel rounded-2xl p-4.5 space-y-3 relative overflow-hidden cockpit-glow-emerald">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-500">
+                  <ShoppingBag className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">Klikit Aggregator</h3>
+                  <p className="text-[11px] text-[var(--text-secondary)]">GrabFood &amp; GoFood Delivery</p>
+                </div>
+              </div>
+              <span className="badge-emerald px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold">
+                SYNCED &amp; ACTIVE
+              </span>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-[var(--border-subtle)] text-xs font-mono">
+              <div className="flex justify-between items-center">
+                <span className="text-[var(--text-secondary)] text-[11px]">Last Transaction:</span>
+                <span className="font-semibold text-[var(--text-primary)]">{freshness.klikit.lastOrderFormatted}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[var(--text-secondary)] text-[11px]">Last Ingested:</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{freshness.klikit.lastImportedFormatted}</span>
+              </div>
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-[var(--text-muted)]">Orders Indexed:</span>
+                <span className="text-[var(--text-secondary)]">{freshness.klikit.orderCount.toLocaleString()} orders</span>
+              </div>
+              <div className="text-[10px] text-[var(--text-muted)] truncate pt-0.5" title={freshness.klikit.sourceFile || ""}>
+                File: {freshness.klikit.sourceFile || "klikit_orders.csv"}
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: POS Majoo */}
+          <div className="cockpit-panel rounded-2xl p-4.5 space-y-3 relative overflow-hidden cockpit-glow-emerald">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-500">
+                  <Store className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">POS Majoo</h3>
+                  <p className="text-[11px] text-[var(--text-secondary)]">Greenville Dine-in &amp; Takeaway</p>
+                </div>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold ${freshness.dineInPos.orderCount > 0 ? "badge-emerald" : "badge-amber"}`}>
+                {freshness.dineInPos.orderCount > 0 ? "SYNCED IN DB" : "AWAITING DROP"}
+              </span>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-[var(--border-subtle)] text-xs font-mono">
+              <div className="flex justify-between items-center">
+                <span className="text-[var(--text-secondary)] text-[11px]">Last Transaction:</span>
+                <span className="font-semibold text-[var(--text-primary)]">{freshness.dineInPos.lastOrderFormatted}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[var(--text-secondary)] text-[11px]">Last Ingested:</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{freshness.dineInPos.lastImportedFormatted}</span>
+              </div>
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-[var(--text-muted)]">Orders Indexed:</span>
+                <span className="text-[var(--text-secondary)]">{freshness.dineInPos.orderCount.toLocaleString()} orders</span>
+              </div>
+              <div className="text-[10px] text-[var(--text-muted)] truncate pt-0.5" title={freshness.dineInPos.sourceFile || ""}>
+                File: {freshness.dineInPos.sourceFile || "majoo_pos.csv"}
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Absensi Majoo */}
+          <div className="cockpit-panel rounded-2xl p-4.5 space-y-3 relative overflow-hidden cockpit-glow-emerald">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-500">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--text-primary)]">Absensi Majoo</h3>
+                  <p className="text-[11px] text-[var(--text-secondary)]">Presensi Karyawan &amp; Fingerprint</p>
+                </div>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold ${freshness.attendance?.orderCount > 0 ? "badge-emerald" : "badge-amber"}`}>
+                {freshness.attendance?.orderCount > 0 ? "SYNCED IN DB" : "AWAITING FILE"}
+              </span>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-[var(--border-subtle)] text-xs font-mono">
+              <div className="flex justify-between items-center">
+                <span className="text-[var(--text-secondary)] text-[11px]">Last Date Recorded:</span>
+                <span className="font-semibold text-[var(--text-primary)]">{freshness.attendance?.lastOrderFormatted || "N/A"}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[var(--text-secondary)] text-[11px]">Last Updated / File:</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{freshness.attendance?.lastImportedFormatted || "N/A"}</span>
+              </div>
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-[var(--text-muted)]">Presensi Logs:</span>
+                <span className="text-[var(--text-secondary)]">{freshness.attendance?.orderCount.toLocaleString() || 0} logs</span>
+              </div>
+              <div className="text-[10px] text-[var(--text-muted)] truncate pt-0.5" title={freshness.attendance?.sourceFile || ""}>
+                File: {freshness.attendance?.sourceFile || "majoo_attendance.csv"}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Upload Area & Floor Checklist */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

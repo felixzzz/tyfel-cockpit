@@ -2,7 +2,7 @@ import { runQuery, MASTER_RECIPES } from './duckdb';
 
 
 export interface SourceFreshness {
-  sourceKey: 'klikit' | 'dine_in_pos';
+  sourceKey: 'klikit' | 'dine_in_pos' | 'majoo_pos' | 'attendance' | string;
   sourceName: string;
   channelType: string;
   branchCoverage: string;
@@ -22,6 +22,8 @@ export interface DataFreshnessSummary {
   sources: SourceFreshness[];
   klikit: SourceFreshness;
   dineInPos: SourceFreshness;
+  majooPos: SourceFreshness;
+  attendance: SourceFreshness;
   overallCoverage: string;
   itemCoverage?: OrderItemCoverageAudit;
 }
@@ -2591,7 +2593,7 @@ export async function getCanceledOrdersDiagnostic(
 }
 
 export async function getDataFreshness(filters?: QueryFilters): Promise<DataFreshnessSummary> {
-  const [rawSources, itemCoverage] = await Promise.all([
+  const [rawSources, attendanceRaw, itemCoverage] = await Promise.all([
     runQuery<{
       source_key: string;
       order_count: number;
@@ -2614,23 +2616,42 @@ export async function getDataFreshness(filters?: QueryFilters): Promise<DataFres
       WHERE status != 'CANCELLED'
       GROUP BY 1;
     `),
+    runQuery<{
+      log_count: number;
+      min_date: string | null;
+      max_date: string | null;
+      latest_file: string | null;
+      max_updated: string | null;
+    }>(`
+      SELECT 
+        CAST(COUNT(*) AS INTEGER) as log_count,
+        CAST(MIN(work_date) AS VARCHAR) as min_date,
+        CAST(MAX(work_date) AS VARCHAR) as max_date,
+        MAX(source_file) as latest_file,
+        strftime(MAX(updated_at), '%Y-%m-%d %H:%M:%S') as max_updated
+      FROM fact_attendance;
+    `),
     getOrderItemCoverageAudit(filters),
   ]);
 
   const klikitRaw = rawSources.find((s) => s.source_key === 'klikit');
   const posRaw = rawSources.find((s) => s.source_key === 'pos');
+  const attRow = attendanceRaw?.[0];
 
   const formatTs = (tsStr: string | null): string => {
     if (!tsStr) return 'N/A';
     try {
       const [datePart, timePart] = tsStr.split(' ');
-      if (!datePart || !timePart) return tsStr;
+      if (!datePart) return tsStr;
       const [year, month, day] = datePart.split('-');
-      const [hour, minute] = timePart.split(':');
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const mIdx = parseInt(month, 10) - 1;
       const mName = monthNames[mIdx] || month;
-      return `${day} ${mName} ${year}, ${hour}:${minute} WIB`;
+      if (timePart) {
+        const [hour, minute] = timePart.split(':');
+        return `${day} ${mName} ${year}, ${hour}:${minute} WIB`;
+      }
+      return `${day} ${mName} ${year}`;
     } catch {
       return tsStr;
     }
@@ -2655,25 +2676,46 @@ export async function getDataFreshness(filters?: QueryFilters): Promise<DataFres
 
   const dineInPos: SourceFreshness = {
     sourceKey: 'dine_in_pos',
-    sourceName: 'Greenville POS (Dine-in / Direct)',
+    sourceName: 'POS Majoo (Greenville)',
     channelType: 'Dine-In, Takeaway & Direct Offline POS',
-    branchCoverage: 'Greenville Dine-in Location',
+    branchCoverage: 'Greenville Flagship Dine-In',
     lastOrderDate: posRaw?.max_created || null,
-    lastOrderFormatted: posRaw?.max_created ? formatTs(posRaw.max_created) : 'No Dine-in data ingested yet',
+    lastOrderFormatted: posRaw?.max_created ? formatTs(posRaw.max_created) : 'Belum ada data POS Majoo',
     lastImportedDate: posRaw?.max_ingested || null,
-    lastImportedFormatted: posRaw?.max_ingested ? formatTs(posRaw.max_ingested) : 'Awaiting POS export file',
+    lastImportedFormatted: posRaw?.max_ingested ? formatTs(posRaw.max_ingested) : 'Menunggu ekspor CSV Majoo',
     earliestDate: posRaw?.min_created ? formatTs(posRaw.min_created) : null,
     orderCount: Number(posRaw?.order_count || 0),
     status: posRaw?.order_count ? 'active' : 'pending',
-    statusBadge: posRaw?.order_count ? 'Synced' : 'Awaiting Import',
+    statusBadge: posRaw?.order_count ? 'Synced & Active' : 'Awaiting Import',
     sourceFile: posRaw?.latest_file || null,
-    description: 'Direct POS cash register export for Greenville offline dine-in & counter orders. Awaiting export CSV ingestion.',
+    description: 'Ekspor kasir POS Majoo untuk pesanan dine-in dan takeaway offline Greenville.',
+  };
+
+  const attendance: SourceFreshness = {
+    sourceKey: 'attendance',
+    sourceName: 'Absensi Karyawan (Majoo Attendance)',
+    channelType: 'Presensi Karyawan & Fingerprint POS Majoo',
+    branchCoverage: 'Tyfel Coffee & Cloud Kitchen Staff',
+    lastOrderDate: attRow?.max_date || null,
+    lastOrderFormatted: attRow?.max_date ? formatTs(attRow.max_date) : 'Belum ada data absensi',
+    lastImportedDate: attRow?.max_updated || null,
+    lastImportedFormatted: attRow?.max_updated
+      ? formatTs(attRow.max_updated)
+      : (attRow?.max_date ? `Per ${formatTs(attRow.max_date)}` : 'Menunggu laporan absensi'),
+    earliestDate: attRow?.min_date ? formatTs(attRow.min_date) : null,
+    orderCount: Number(attRow?.log_count || 0),
+    status: attRow?.log_count ? 'active' : 'pending',
+    statusBadge: attRow?.log_count ? 'Synced & Active' : 'Missing File',
+    sourceFile: attRow?.latest_file || null,
+    description: 'Laporan absensi karyawan dari Majoo (Jam Masuk, Jam Pulang, Keterlambatan, Presensi).',
   };
 
   return {
-    sources: [klikit, dineInPos],
+    sources: [klikit, dineInPos, attendance],
     klikit,
     dineInPos,
+    majooPos: dineInPos,
+    attendance,
     overallCoverage: klikit.lastOrderDate
       ? `${klikit.earliestDate?.split(',')[0] || '19 Sep'} - ${klikit.lastOrderFormatted}`
       : 'No transaction data',

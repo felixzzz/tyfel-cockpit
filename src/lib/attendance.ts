@@ -192,6 +192,8 @@ export interface AttendanceCycleReport {
   salary_code: string;
   start_date: string;
   end_date: string;
+  latest_attendance_date?: string;
+  latest_attendance_date_formatted?: string;
   is_current_running: boolean;
   is_editable: boolean;
   available_years: number[];
@@ -1758,6 +1760,17 @@ export async function getAttendanceCycleReport(params?: {
   selectedCycle.active_employee_count = payslips.length;
   selectedCycle.payment_status = cyclePaymentStatus;
 
+  const formatIsoDate = (dStr: string): string => {
+    try {
+      const [y, m, d] = dStr.split('-');
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const mIdx = parseInt(m, 10) - 1;
+      return `${parseInt(d, 10)} ${monthNames[mIdx] || m} ${y}`;
+    } catch {
+      return dStr;
+    }
+  };
+
   return {
     period_key: periodKey,
     year: selectedCycle.year,
@@ -1766,6 +1779,8 @@ export async function getAttendanceCycleReport(params?: {
     salary_code: salaryCode,
     start_date: startDate,
     end_date: endDate,
+    latest_attendance_date: dbMaxDate,
+    latest_attendance_date_formatted: formatIsoDate(dbMaxDate),
     is_current_running: selectedCycle.is_current_running,
     is_editable: selectedCycle.is_editable,
     available_years: years,

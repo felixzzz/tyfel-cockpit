@@ -58,13 +58,22 @@ export function AttendanceHeader({
               <Users className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl lg:text-3xl font-bold tracking-tight text-[var(--text-primary)]">
                   Tyfel Coffee · Staff Attendance &amp; Payslips
                 </h1>
                 <span className="badge-emerald text-[10px] font-mono uppercase tracking-widest px-2.5 py-0.5 rounded-full font-semibold">
                   Payroll Studio
                 </span>
+                {report?.latest_attendance_date_formatted && (
+                  <span
+                    className="surface-well text-[11px] font-mono text-emerald-600 dark:text-emerald-300 px-2.5 py-0.5 rounded-full font-medium inline-flex items-center gap-1.5"
+                    title={`Data absensi terakhir di database: ${report.latest_attendance_date}`}
+                  >
+                    <Clock className="w-3 h-3 text-emerald-500" />
+                    Last Updated: {report.latest_attendance_date_formatted}
+                  </span>
+                )}
               </div>
               <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-0.5">
                 Monthly payroll periods (16th–15th), per-period employee overrides, payment disbursement status &amp; attendance verification
@@ -166,6 +175,15 @@ export function AttendanceHeader({
                     {report.salary_code}
                   </span>
                 </span>
+                {report.latest_attendance_date_formatted && (
+                  <span
+                    className="badge-emerald px-2 py-0.5 rounded text-[10px] font-semibold inline-flex items-center gap-1"
+                    title={`Data absensi terakhir pada database: ${report.latest_attendance_date}`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    Data s/d {report.latest_attendance_date_formatted}
+                  </span>
+                )}
                 {report.overall.cycle_payment_status === "paid" ? (
                   <span className="badge-emerald px-2.5 py-0.5 rounded-full text-[11px] font-semibold inline-flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
